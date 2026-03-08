@@ -21,6 +21,13 @@ constexpr const char* kViewportWindowName = "Viewport";
 constexpr const char* kLeftPaneWindowName = "Outliner";
 constexpr const char* kBottomPaneWindowName = "Console";
 constexpr float kToolbarHeight = 52.0F;
+constexpr double kShortcutMenuOpenDelaySeconds = 0.05;
+constexpr float kShortcutMenuRowHeight = 20.0F;
+constexpr float kShortcutMenuMaxVisibleRows = 8.0F;
+constexpr float kShortcutMenuWidth = 220.0F;
+constexpr float kShortcutMouseDeadzone = 10.0F;
+constexpr ImVec2 kShortcutMenuAnchorOffset = ImVec2(-50.0F, -20.0F);
+constexpr const char* kShortcutMenuWindowName = "SequentialShortcutMenu";
 
 constexpr ImVec2 kOverlayButtonSize = ImVec2(22.0F, 20.0F);
 constexpr float kOverlayGroupGap = 8.0F;
@@ -57,6 +64,18 @@ OverlayVec3 rotateByCameraInverse(const OverlayVec3& vector, float yaw, float pi
         .y = (yaw_rotated.y * cos_pitch) - (yaw_rotated.z * sin_pitch),
         .z = (yaw_rotated.y * sin_pitch) + (yaw_rotated.z * cos_pitch),
     };
+}
+
+OverlayVec3 applyUpAxisTransform(const OverlayVec3& vector, UpAxis up_axis) {
+    if (up_axis == UpAxis::Z) {
+        return OverlayVec3{
+            .x = vector.x,
+            .y = vector.z,
+            .z = -vector.y,
+        };
+    }
+
+    return vector;
 }
 
 void mergeSymbolFont(ImGuiIO& io) {
@@ -140,6 +159,10 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version) {
         ImGui::DestroyContext();
         throw std::runtime_error("Failed to initialize ImGui OpenGL backend.");
     }
+
+    registerSequentialShortcut(ImGuiKey_V, ImGuiKey_W, "Toggle wireframe", ShortcutAction::ToggleWireframe);
+    registerSequentialShortcut(ImGuiKey_V, ImGuiKey_S, "Toggle shade tris", ShortcutAction::ToggleShadeTriangles);
+    registerSequentialShortcut(ImGuiKey_V, ImGuiKey_R, "Reset viewport", ShortcutAction::ResetViewport);
 }
 
 EditorUi::~EditorUi() {
@@ -160,6 +183,8 @@ void EditorUi::setViewportTexture(std::uint32_t texture_id) {
 
 EditorUiActions EditorUi::draw(const EditorUiState& state) {
     EditorUiActions actions;
+    handleSequentialShortcuts(&actions);
+
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const ImVec2 toolbar_position = viewport->WorkPos;
     const ImVec2 toolbar_size = ImVec2(viewport->WorkSize.x, kToolbarHeight);
@@ -203,6 +228,7 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
     drawBottomPane(state);
     drawViewportPane(state, &actions);
     drawSettingsWindow(&actions);
+    drawShortcutMenu(&actions);
 
     return actions;
 }
@@ -243,6 +269,262 @@ void EditorUi::buildDefaultLayout(ImGuiID dockspace_id, const ImVec2& dockspace_
     }
 
     ImGui::DockBuilderFinish(dockspace_id);
+}
+
+void EditorUi::registerSequentialShortcut(
+    ImGuiKey first_key,
+    ImGuiKey second_key,
+    const char* label,
+    ShortcutAction action
+) {
+    sequential_shortcuts_.push_back(SequentialShortcutBinding{
+        .first_key = first_key,
+        .second_key = second_key,
+        .label = label,
+        .action = action,
+    });
+}
+
+void EditorUi::handleSequentialShortcuts(EditorUiActions* actions) {
+    if (actions == nullptr) {
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (isCmdOrCtrlHeld(io)) {
+        resetShortcutSequence();
+        return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        resetShortcutSequence();
+        return;
+    }
+
+    std::vector<ImGuiKey> pressed_first_keys;
+    std::vector<ImGuiKey> pressed_second_keys;
+    pressed_first_keys.reserve(sequential_shortcuts_.size());
+    pressed_second_keys.reserve(sequential_shortcuts_.size());
+
+    for (const SequentialShortcutBinding& binding : sequential_shortcuts_) {
+        if (ImGui::IsKeyPressed(binding.first_key, false) &&
+            std::find(pressed_first_keys.begin(), pressed_first_keys.end(), binding.first_key) == pressed_first_keys.end()) {
+            pressed_first_keys.push_back(binding.first_key);
+        }
+
+        if (ImGui::IsKeyPressed(binding.second_key, false) &&
+            std::find(pressed_second_keys.begin(), pressed_second_keys.end(), binding.second_key) == pressed_second_keys.end()) {
+            pressed_second_keys.push_back(binding.second_key);
+        }
+    }
+
+    const auto tryTriggerSecondKey = [&](ImGuiKey first_key) -> bool {
+        for (ImGuiKey second_key : pressed_second_keys) {
+            const auto match = std::find_if(
+                sequential_shortcuts_.begin(),
+                sequential_shortcuts_.end(),
+                [first_key, second_key](const SequentialShortcutBinding& binding) {
+                    return binding.first_key == first_key && binding.second_key == second_key;
+                }
+            );
+            if (match != sequential_shortcuts_.end()) {
+                triggerShortcutAction(match->action, actions);
+                resetShortcutSequence();
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    if (pending_shortcut_.first_key != ImGuiKey_None) {
+        if (tryTriggerSecondKey(pending_shortcut_.first_key)) {
+            return;
+        }
+
+        for (ImGuiKey first_key : pressed_first_keys) {
+            if (first_key != pending_shortcut_.first_key) {
+                beginShortcutSequence(first_key, io.MousePos);
+                return;
+            }
+        }
+
+        return;
+    }
+
+    for (ImGuiKey first_key : pressed_first_keys) {
+        beginShortcutSequence(first_key, io.MousePos);
+        if (tryTriggerSecondKey(first_key)) {
+            return;
+        }
+        return;
+    }
+}
+
+void EditorUi::drawShortcutMenu(EditorUiActions* actions) {
+    if (pending_shortcut_.first_key == ImGuiKey_None) {
+        return;
+    }
+
+    if ((ImGui::GetTime() - pending_shortcut_.started_at_seconds) < kShortcutMenuOpenDelaySeconds) {
+        return;
+    }
+
+    pending_shortcut_.menu_visible = true;
+
+    std::vector<const SequentialShortcutBinding*> matching_shortcuts;
+    matching_shortcuts.reserve(sequential_shortcuts_.size());
+    for (const SequentialShortcutBinding& binding : sequential_shortcuts_) {
+        if (binding.first_key == pending_shortcut_.first_key) {
+            matching_shortcuts.push_back(&binding);
+        }
+    }
+
+    if (matching_shortcuts.empty()) {
+        resetShortcutSequence();
+        return;
+    }
+
+    ImGui::SetNextWindowPos(pending_shortcut_.menu_anchor, ImGuiCond_Always);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(kShortcutMenuWidth, 0.0F), ImVec2(kShortcutMenuWidth, FLT_MAX));
+    ImGui::SetNextWindowBgAlpha(0.96F);
+
+    constexpr ImGuiWindowFlags menu_flags =
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoNav;
+
+    bool should_close = false;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0F, 4.0F));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0F);
+    if (ImGui::Begin(kShortcutMenuWindowName, nullptr, menu_flags)) {
+        const float child_height = std::min(
+            static_cast<float>(matching_shortcuts.size()) * kShortcutMenuRowHeight,
+            kShortcutMenuMaxVisibleRows * kShortcutMenuRowHeight
+        );
+
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0F, 2.0F));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0F, 0.0F));
+        ImGui::BeginChild("ShortcutOptions", ImVec2(0.0F, child_height), ImGuiChildFlags_None);
+        for (std::size_t index = 0; index < matching_shortcuts.size(); ++index) {
+            const SequentialShortcutBinding& binding = *matching_shortcuts[index];
+            const char* shortcut_label = ImGui::GetKeyName(binding.second_key);
+
+            ImGui::PushID(static_cast<int>(index));
+            if (ImGui::MenuItem(binding.label, shortcut_label)) {
+                triggerShortcutAction(binding.action, actions);
+                should_close = true;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
+
+        const bool menu_hovered = ImGui::IsWindowHovered(
+            ImGuiHoveredFlags_AllowWhenBlockedByActiveItem | ImGuiHoveredFlags_ChildWindows
+        );
+        const ImVec2 menu_position = ImGui::GetWindowPos();
+        const ImVec2 menu_size = ImGui::GetWindowSize();
+        if (menu_hovered) {
+            pending_shortcut_.menu_hovered_once = true;
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+
+        if (should_close) {
+            resetShortcutSequence();
+            return;
+        }
+
+        const ImVec2 mouse_position = ImGui::GetIO().MousePos;
+        const bool mouse_outside_deadzone =
+            mouse_position.x < (menu_position.x - kShortcutMouseDeadzone) ||
+            mouse_position.x > (menu_position.x + menu_size.x + kShortcutMouseDeadzone) ||
+            mouse_position.y < (menu_position.y - kShortcutMouseDeadzone) ||
+            mouse_position.y > (menu_position.y + menu_size.y + kShortcutMouseDeadzone);
+        const bool mouse_clicked_outside =
+            ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+        if (!menu_hovered && pending_shortcut_.menu_visible &&
+            (mouse_outside_deadzone || mouse_clicked_outside)) {
+            resetShortcutSequence();
+        }
+
+        return;
+    }
+
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+}
+
+void EditorUi::beginShortcutSequence(ImGuiKey first_key, const ImVec2& menu_anchor) {
+    pending_shortcut_ = PendingShortcutState{
+        .first_key = first_key,
+        .menu_anchor = ImVec2(
+            menu_anchor.x + kShortcutMenuAnchorOffset.x,
+            menu_anchor.y + kShortcutMenuAnchorOffset.y
+        ),
+        .started_at_seconds = ImGui::GetTime(),
+        .menu_visible = false,
+        .menu_hovered_once = false,
+    };
+}
+
+void EditorUi::resetShortcutSequence() {
+    pending_shortcut_ = PendingShortcutState{};
+}
+
+void EditorUi::triggerShortcutAction(ShortcutAction action, EditorUiActions* actions) {
+    switch (action) {
+        case ShortcutAction::ToggleWireframe:
+            toggleWireframe(actions);
+            return;
+        case ShortcutAction::ToggleShadeTriangles:
+            toggleShadeTriangles(actions);
+            return;
+        case ShortcutAction::ResetViewport:
+            resetViewport(actions);
+            return;
+    }
+}
+
+void EditorUi::toggleWireframe(EditorUiActions* actions) {
+    viewport_display_settings_.show_wireframe = !viewport_display_settings_.show_wireframe;
+    if (actions != nullptr) {
+        actions->event_logs.push_back(EditorUiLogEvent{
+            .origin = "VIEWPORT",
+            .message = std::string("Show wireframe ") +
+                (viewport_display_settings_.show_wireframe ? "enabled." : "disabled."),
+        });
+    }
+}
+
+void EditorUi::toggleShadeTriangles(EditorUiActions* actions) {
+    viewport_display_settings_.shade_triangles = !viewport_display_settings_.shade_triangles;
+    if (actions != nullptr) {
+        actions->event_logs.push_back(EditorUiLogEvent{
+            .origin = "VIEWPORT",
+            .message = std::string("Shade triangles ") +
+                (viewport_display_settings_.shade_triangles ? "enabled." : "disabled."),
+        });
+    }
+}
+
+void EditorUi::resetViewport(EditorUiActions* actions) {
+    viewport_display_settings_.show_wireframe = true;
+    viewport_display_settings_.shade_triangles = true;
+    selection_filter_ = SelectionFilter::Edges;
+
+    if (actions != nullptr) {
+        actions->viewport_camera.reset = true;
+        actions->event_logs.push_back(EditorUiLogEvent{
+            .origin = "VIEWPORT",
+            .message = "Viewport reset.",
+        });
+    }
 }
 
 void EditorUi::drawToolbar(EditorUiActions* actions) {
@@ -338,21 +620,37 @@ void EditorUi::drawBottomPane(const EditorUiState& state) {
     ImGui::Begin(kBottomPaneWindowName, nullptr, pane_flags);
     if (ImGui::BeginTabBar("BottomTabs")) {
         if (ImGui::BeginTabItem("Console")) {
-            constexpr ImGuiWindowFlags console_scroll_flags = ImGuiWindowFlags_HorizontalScrollbar;
-            ImGui::BeginChild("ConsoleScrollRegion", ImVec2(0.0F, 0.0F), ImGuiChildFlags_Borders, console_scroll_flags);
             if (state.log_messages.empty()) {
                 ImGui::TextDisabled("No log messages.");
             } else {
-                for (const std::string& log_message : state.log_messages) {
-                    ImGui::TextWrapped("%s", log_message.c_str());
+                std::string console_text;
+                for (std::size_t index = 0; index < state.log_messages.size(); ++index) {
+                    console_text += state.log_messages[index];
+                    if ((index + 1) < state.log_messages.size()) {
+                        console_text.push_back('\n');
+                    }
                 }
+                console_text.push_back('\0');
+
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
+                ImGui::InputTextMultiline(
+                    "##ConsoleText",
+                    console_text.data(),
+                    console_text.size(),
+                    ImVec2(-FLT_MIN, -FLT_MIN),
+                    ImGuiInputTextFlags_ReadOnly
+                );
+                ImGui::PopStyleColor(3);
 
                 if (state.log_messages.size() != last_console_log_count_) {
-                    ImGui::SetScrollHereY(1.0F);
+                    if (ImGuiWindow* console_text_window = ImGui::FindWindowByID(ImGui::GetItemID()); console_text_window != nullptr) {
+                        console_text_window->Scroll.y = console_text_window->ScrollMax.y;
+                    }
                 }
             }
             last_console_log_count_ = state.log_messages.size();
-            ImGui::EndChild();
             ImGui::EndTabItem();
         }
 
@@ -427,9 +725,14 @@ int EditorUi::drawSegmentedControl(
 void EditorUi::drawViewportPane(const EditorUiState& state, EditorUiActions* actions) {
     constexpr ImGuiWindowFlags pane_flags =
         ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoMove;
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse;
 
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0F, 0.0F));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
     ImGui::Begin(kViewportWindowName, nullptr, pane_flags);
+    ImGui::PopStyleVar(2);
     viewport_render_size_ = ImGui::GetContentRegionAvail();
     viewport_render_size_.x = std::max(viewport_render_size_.x, 1.0F);
     viewport_render_size_.y = std::max(viewport_render_size_.y, 1.0F);
@@ -474,23 +777,9 @@ void EditorUi::drawViewportPane(const EditorUiState& state, EditorUiActions* act
     }};
     const int clicked_display_item = drawSegmentedControl("viewport_display", controls_top_right, display_items);
     if (clicked_display_item == 0) {
-        viewport_display_settings_.show_wireframe = !viewport_display_settings_.show_wireframe;
-        if (actions != nullptr) {
-            actions->event_logs.push_back(EditorUiLogEvent{
-                .origin = "VIEWPORT",
-                .message = std::string("Show wireframe ") +
-                    (viewport_display_settings_.show_wireframe ? "enabled." : "disabled."),
-            });
-        }
+        toggleWireframe(actions);
     } else if (clicked_display_item == 1) {
-        viewport_display_settings_.shade_triangles = !viewport_display_settings_.shade_triangles;
-        if (actions != nullptr) {
-            actions->event_logs.push_back(EditorUiLogEvent{
-                .origin = "VIEWPORT",
-                .message = std::string("Shade triangles ") +
-                    (viewport_display_settings_.shade_triangles ? "enabled." : "disabled."),
-            });
-        }
+        toggleShadeTriangles(actions);
     }
 
     const ImVec2 filter_top_right = ImVec2(
@@ -516,6 +805,7 @@ void EditorUi::drawViewportPane(const EditorUiState& state, EditorUiActions* act
 
     const ImVec2 gizmo_center = ImVec2(viewport_rect_min.x + 32.0F, viewport_rect_max.y - 32.0F);
     constexpr float gizmo_radius = 28.0F;
+    constexpr float gizmo_hit_padding = 10.0F;
 
     struct GizmoAxis {
         OverlayVec3 vector;
@@ -524,9 +814,9 @@ void EditorUi::drawViewportPane(const EditorUiState& state, EditorUiActions* act
     };
 
     const GizmoAxis axes[] = {
-        GizmoAxis{.vector = OverlayVec3{1.0F, 0.0F, 0.0F}, .color = IM_COL32(231, 76, 60, 255), .label = "X"},
-        GizmoAxis{.vector = OverlayVec3{0.0F, 1.0F, 0.0F}, .color = IM_COL32(46, 204, 113, 255), .label = "Y"},
-        GizmoAxis{.vector = OverlayVec3{0.0F, 0.0F, 1.0F}, .color = IM_COL32(52, 152, 219, 255), .label = "Z"},
+        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{1.0F, 0.0F, 0.0F}, file_import_settings_.up_axis), .color = IM_COL32(231, 76, 60, 255), .label = "X"},
+        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{0.0F, 1.0F, 0.0F}, file_import_settings_.up_axis), .color = IM_COL32(46, 204, 113, 255), .label = "Y"},
+        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{0.0F, 0.0F, 1.0F}, file_import_settings_.up_axis), .color = IM_COL32(52, 152, 219, 255), .label = "Z"},
     };
 
     std::array<std::pair<float, GizmoAxis>, 3> sorted_axes{};
@@ -553,7 +843,37 @@ void EditorUi::drawViewportPane(const EditorUiState& state, EditorUiActions* act
         draw_list->AddText(ImVec2(endpoint.x + 5.0F, endpoint.y - 6.0F), axis.color, axis.label);
     }
 
-    if (actions != nullptr && viewport_image_hovered) {
+    const ImVec2 gizmo_hit_min = ImVec2(
+        gizmo_center.x - gizmo_radius - gizmo_hit_padding,
+        gizmo_center.y - gizmo_radius - gizmo_hit_padding
+    );
+    const ImVec2 gizmo_hit_size = ImVec2(
+        (gizmo_radius * 2.0F) + (gizmo_hit_padding * 2.0F),
+        (gizmo_radius * 2.0F) + (gizmo_hit_padding * 2.0F)
+    );
+
+    ImGui::SetCursorScreenPos(gizmo_hit_min);
+    ImGui::InvisibleButton(
+        "ViewportGizmoContextTarget",
+        gizmo_hit_size,
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight
+    );
+    const bool gizmo_hovered = ImGui::IsItemHovered();
+    if (ImGui::BeginPopupContextItem("ViewportGizmoContextMenu", ImGuiPopupFlags_MouseButtonRight)) {
+        if (ImGui::MenuItem("Switch y/z up")) {
+            file_import_settings_.up_axis = file_import_settings_.up_axis == UpAxis::Y ? UpAxis::Z : UpAxis::Y;
+            if (actions != nullptr) {
+                actions->event_logs.push_back(EditorUiLogEvent{
+                    .origin = "SETTINGS",
+                    .message = std::string("Up axis set to ") + upAxisName(file_import_settings_.up_axis) + ".",
+                });
+            }
+        }
+        ImGui::EndPopup();
+    }
+    const bool gizmo_context_open = ImGui::IsPopupOpen("ViewportGizmoContextMenu");
+
+    if (actions != nullptr && viewport_image_hovered && !gizmo_hovered && !gizmo_context_open) {
         ImGuiIO& io = ImGui::GetIO();
         if (io.MouseWheel != 0.0F) {
             const float zoom_direction = viewport_control_settings_.invert_zoom ? -1.0F : 1.0F;
@@ -669,7 +989,7 @@ void EditorUi::drawSettingsWindow(EditorUiActions* actions) {
             if (actions != nullptr) {
                 actions->event_logs.push_back(EditorUiLogEvent{
                     .origin = "SETTINGS",
-                    .message = std::string("Import up axis set to ") + upAxisName(file_import_settings_.up_axis) + ".",
+                    .message = std::string("Up axis set to ") + upAxisName(file_import_settings_.up_axis) + ".",
                 });
             }
         }
