@@ -7,6 +7,10 @@ project(
     LANGUAGES CXX
 )
 
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -41,9 +45,18 @@ meshtools_set_project_warnings(meshtools_warnings "${MESHTOOLS_WARNINGS_AS_ERROR
 
 add_library(meshtools_core STATIC
     src/app/EditorApplication.cpp
+    src/io/MeshImporter.cpp
+    src/mesh/MeshDocument.cpp
     src/platform/GlfwWindow.cpp
+    src/render/ViewportRenderer.cpp
     src/ui/EditorUi.cpp
 )
+
+if(APPLE)
+    target_sources(meshtools_core PRIVATE src/platform/FileDialog_mac.mm)
+else()
+    target_sources(meshtools_core PRIVATE src/platform/FileDialog_stub.cpp)
+endif()
 
 target_include_directories(meshtools_core
     PUBLIC
@@ -59,8 +72,12 @@ target_link_libraries(meshtools_core
         meshtools_warnings
 )
 
+if(APPLE)
+    find_library(COCOA_FRAMEWORK Cocoa REQUIRED)
+    target_link_libraries(meshtools_core PRIVATE "${COCOA_FRAMEWORK}")
+endif()
+
 add_executable(meshtools_editor src/main.cpp)
 target_link_libraries(meshtools_editor PRIVATE meshtools_core)
 
 set_target_properties(meshtools_editor PROPERTIES OUTPUT_NAME meshtools)
-
