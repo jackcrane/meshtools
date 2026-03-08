@@ -9,6 +9,7 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version)
       viewport_pane_(window) {
     sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_W, "Toggle wireframe", ShortcutCommand::ToggleWireframe);
     sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_S, "Toggle shade tris", ShortcutCommand::ToggleShadeTriangles);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_P, "Toggle show points", ShortcutCommand::ToggleShowPoints);
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_E, "Toggle edge selection", ShortcutCommand::ToggleEdgeSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_F, "Toggle face selection", ShortcutCommand::ToggleFaceSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_P, "Toggle point selection", ShortcutCommand::TogglePointSelection);
@@ -30,6 +31,8 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ToggleWireframe);
     const std::string shade_triangles_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ToggleShadeTriangles);
+    const std::string show_points_shortcut =
+        sequential_shortcuts_.shortcutLabel(ShortcutCommand::ToggleShowPoints);
     const std::string edge_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ToggleEdgeSelection);
     const std::string face_shortcut =
@@ -48,12 +51,14 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         selection_filters_,
         wireframe_shortcut,
         shade_triangles_shortcut,
+        show_points_shortcut,
         edge_shortcut,
         face_shortcut,
         point_shortcut,
         &actions,
         [this, &actions]() { toggleWireframe(viewport_display_settings_, &actions); },
         [this, &actions]() { toggleShadeTriangles(viewport_display_settings_, &actions); },
+        [this, &actions]() { toggleShowPoints(viewport_display_settings_, &actions); },
         [this, &actions]() { toggleEdgeSelection(selection_filters_, &actions); },
         [this, &actions]() { toggleFaceSelection(selection_filters_, &actions); },
         [this, &actions]() { togglePointSelection(selection_filters_, &actions); }
@@ -110,6 +115,9 @@ void EditorUi::triggerShortcutAction(ShortcutCommand action, EditorUiActions* ac
             return;
         case ShortcutCommand::ToggleShadeTriangles:
             toggleShadeTriangles(viewport_display_settings_, actions);
+            return;
+        case ShortcutCommand::ToggleShowPoints:
+            toggleShowPoints(viewport_display_settings_, actions);
             return;
         case ShortcutCommand::ToggleEdgeSelection:
             toggleEdgeSelection(selection_filters_, actions);

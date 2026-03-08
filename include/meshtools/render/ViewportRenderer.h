@@ -18,6 +18,7 @@ class ViewportRenderer {
     struct DisplaySettings {
         bool show_wireframe = true;
         bool shade_triangles = true;
+        bool show_points = false;
         UpAxis source_up_axis = UpAxis::Y;
     };
 
@@ -84,6 +85,7 @@ class ViewportRenderer {
     std::uint32_t index_buffer_ = 0;
     std::uint32_t axis_vertex_array_ = 0;
     std::uint32_t axis_vertex_buffer_ = 0;
+    std::uint32_t vertex_count_ = 0;
     std::uint32_t index_count_ = 0;
     int framebuffer_width_ = 0;
     int framebuffer_height_ = 0;

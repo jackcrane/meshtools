@@ -36,12 +36,14 @@ void ViewportPane::draw(
     SelectionFilters& selection_filters,
     std::string_view wireframe_shortcut,
     std::string_view shade_triangles_shortcut,
+    std::string_view show_points_shortcut,
     std::string_view edge_shortcut,
     std::string_view face_shortcut,
     std::string_view point_shortcut,
     EditorUiActions* actions,
     const std::function<void()>& on_toggle_wireframe,
     const std::function<void()>& on_toggle_shade_triangles,
+    const std::function<void()>& on_toggle_show_points,
     const std::function<void()>& on_toggle_edges,
     const std::function<void()>& on_toggle_faces,
     const std::function<void()>& on_toggle_points
@@ -94,7 +96,7 @@ void ViewportPane::draw(
         viewport_rect_min.y + kOverlayPadding
     );
 
-    const std::array<SegmentedControlItem, 2> display_items = {{
+    const std::array<SegmentedControlItem, 3> display_items = {{
         SegmentedControlItem{
             .label = "\xE2\x97\x87",
             .tooltip = "Show wireframe",
@@ -107,12 +109,20 @@ void ViewportPane::draw(
             .shortcut = shade_triangles_shortcut,
             .selected = viewport_display_settings.shade_triangles
         },
+        SegmentedControlItem{
+            .label = "\xE2\xA0\xAA\xE2\xA0\x82",
+            .tooltip = "Show points",
+            .shortcut = show_points_shortcut,
+            .selected = viewport_display_settings.show_points
+        },
     }};
     const int clicked_display_item = drawSegmentedControl("viewport_display", controls_top_right, display_items);
     if (clicked_display_item == 0) {
         on_toggle_wireframe();
     } else if (clicked_display_item == 1) {
         on_toggle_shade_triangles();
+    } else if (clicked_display_item == 2) {
+        on_toggle_show_points();
     }
 
     const ImVec2 filter_top_right = ImVec2(

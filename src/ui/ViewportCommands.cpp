@@ -39,6 +39,17 @@ void toggleShadeTriangles(ViewportDisplaySettings& viewport_display_settings, Ed
     }
 }
 
+void toggleShowPoints(ViewportDisplaySettings& viewport_display_settings, EditorUiActions* actions) {
+    viewport_display_settings.show_points = !viewport_display_settings.show_points;
+    if (actions != nullptr) {
+        actions->event_logs.push_back(EditorUiLogEvent{
+            .origin = "VIEWPORT",
+            .message = std::string("Show points ") +
+                (viewport_display_settings.show_points ? "enabled." : "disabled."),
+        });
+    }
+}
+
 void toggleEdgeSelection(SelectionFilters& selection_filters, EditorUiActions* actions) {
     selection_filters.edges = !selection_filters.edges;
     logSelectionState("Edge selection", selection_filters.edges, actions);
@@ -61,6 +72,7 @@ void resetViewport(
 ) {
     viewport_display_settings.show_wireframe = true;
     viewport_display_settings.shade_triangles = true;
+    viewport_display_settings.show_points = false;
     selection_filters = SelectionFilters{};
 
     if (actions != nullptr) {

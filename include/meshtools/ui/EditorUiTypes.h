@@ -60,6 +60,7 @@ struct FileImportSettings {
 struct ViewportDisplaySettings {
     bool show_wireframe = true;
     bool shade_triangles = true;
+    bool show_points = false;
 };
 
 struct ViewportCameraInput {

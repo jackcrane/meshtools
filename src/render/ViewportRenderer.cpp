@@ -24,13 +24,20 @@ constexpr const char* kVertexShaderSource = R"(
 in vec3 a_position;
 in vec3 a_normal;
 uniform mat4 u_mvp;
+uniform int u_render_mode;
+uniform float u_point_size;
 out vec3 v_position;
 out vec3 v_normal;
 
 void main() {
-    v_position = a_position;
+    vec3 position = a_position;
+    if (u_render_mode == 2) {
+        gl_PointSize = u_point_size;
+    }
+
+    v_position = position;
     v_normal = a_normal;
-    gl_Position = u_mvp * vec4(a_position, 1.0);
+    gl_Position = u_mvp * vec4(position, 1.0);
 }
 )";
 
@@ -46,6 +53,20 @@ out vec4 out_color;
 void main() {
     if (u_render_mode == 1) {
         out_color = vec4(0.07, 0.08, 0.10, 0.92);
+        return;
+    }
+
+    if (u_render_mode == 2) {
+        vec2 centered = (gl_PointCoord * 2.0) - vec2(1.0);
+        float arm_distance = min(abs(centered.x), abs(centered.y));
+        float arm_alpha = 1.0 - smoothstep(0.10, 0.22, arm_distance);
+        float radius_alpha = 1.0 - smoothstep(0.82, 1.00, length(centered));
+        float alpha = arm_alpha * radius_alpha;
+        if (alpha <= 0.01) {
+            discard;
+        }
+
+        out_color = vec4(vec3(0.0), alpha);
         return;
     }
 
@@ -382,8 +403,10 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
     const int mvp_location = glGetUniformLocation(shader_program_, "u_mvp");
     const int camera_position_location = glGetUniformLocation(shader_program_, "u_camera_position");
     const int render_mode_location = glGetUniformLocation(shader_program_, "u_render_mode");
+    const int point_size_location = glGetUniformLocation(shader_program_, "u_point_size");
     glUniformMatrix4fv(mvp_location, 1, GL_FALSE, mvp.data());
     glUniform3f(camera_position_location, eye_x, eye_y, eye_z);
+    glUniform1f(point_size_location, 7.0F);
 
     glBindVertexArray(vertex_array_);
 
@@ -402,6 +425,16 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
         glUniform1i(render_mode_location, 1);
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glDisable(GL_BLEND);
+    }
+
+    if (display_settings.show_points && vertex_count_ > 0) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_PROGRAM_POINT_SIZE);
+        glUniform1i(render_mode_location, 2);
+        glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(vertex_count_));
+        glDisable(GL_PROGRAM_POINT_SIZE);
         glDisable(GL_BLEND);
     }
 
@@ -643,6 +676,7 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
 }
 
 void ViewportRenderer::uploadGeometry(const std::vector<Vertex>& vertices, const std::vector<std::uint32_t>& indices) {
+    vertex_count_ = static_cast<std::uint32_t>(vertices.size());
     index_count_ = static_cast<std::uint32_t>(indices.size());
 
     glBindVertexArray(vertex_array_);

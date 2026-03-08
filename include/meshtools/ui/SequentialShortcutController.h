@@ -11,6 +11,7 @@ namespace meshtools::ui {
 enum class ShortcutCommand {
     ToggleWireframe,
     ToggleShadeTriangles,
+    ToggleShowPoints,
     ToggleEdgeSelection,
     ToggleFaceSelection,
     TogglePointSelection,
