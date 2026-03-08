@@ -67,8 +67,12 @@ void SequentialShortcutController::handleInput(const std::function<void(Shortcut
         }
     }
 
-    const auto try_trigger_second_key = [&](ImGuiKey first_key) -> bool {
+    const auto try_trigger_second_key = [&](ImGuiKey first_key, bool allow_same_key_repeat) -> bool {
         for (ImGuiKey second_key : pressed_second_keys) {
+            if (!allow_same_key_repeat && second_key == first_key) {
+                continue;
+            }
+
             const auto match = std::find_if(
                 bindings_.begin(),
                 bindings_.end(),
@@ -87,7 +91,9 @@ void SequentialShortcutController::handleInput(const std::function<void(Shortcut
     };
 
     if (pending_.first_key != ImGuiKey_None) {
-        if (try_trigger_second_key(pending_.first_key)) {
+        pending_.first_key_released = pending_.first_key_released || !ImGui::IsKeyDown(pending_.first_key);
+
+        if (try_trigger_second_key(pending_.first_key, pending_.first_key_released)) {
             return;
         }
 
@@ -103,7 +109,7 @@ void SequentialShortcutController::handleInput(const std::function<void(Shortcut
 
     for (ImGuiKey first_key : pressed_first_keys) {
         beginSequence(first_key, io.MousePos);
-        if (try_trigger_second_key(first_key)) {
+        if (try_trigger_second_key(first_key, false)) {
             return;
         }
         return;
@@ -245,6 +251,7 @@ void SequentialShortcutController::beginSequence(ImGuiKey first_key, const ImVec
             menu_anchor.y + kShortcutMenuAnchorOffset.y
         ),
         .started_at_seconds = ImGui::GetTime(),
+        .first_key_released = false,
         .menu_visible = false,
         .menu_hovered_once = false,
     };

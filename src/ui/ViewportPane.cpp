@@ -33,12 +33,18 @@ void ViewportPane::draw(
     const ViewportControlSettings& viewport_control_settings,
     const FileImportSettings& default_file_import_settings,
     ViewportDisplaySettings& viewport_display_settings,
-    SelectionFilter& selection_filter,
+    SelectionFilters& selection_filters,
     std::string_view wireframe_shortcut,
     std::string_view shade_triangles_shortcut,
+    std::string_view edge_shortcut,
+    std::string_view face_shortcut,
+    std::string_view point_shortcut,
     EditorUiActions* actions,
     const std::function<void()>& on_toggle_wireframe,
-    const std::function<void()>& on_toggle_shade_triangles
+    const std::function<void()>& on_toggle_shade_triangles,
+    const std::function<void()>& on_toggle_edges,
+    const std::function<void()>& on_toggle_faces,
+    const std::function<void()>& on_toggle_points
 ) {
     constexpr ImGuiWindowFlags pane_flags =
         ImGuiWindowFlags_NoCollapse |
@@ -113,21 +119,33 @@ void ViewportPane::draw(
         controls_top_right.x,
         controls_top_right.y + (static_cast<float>(display_items.size()) * kOverlayButtonSize.y) + kOverlayGroupGap
     );
-    const std::array<SegmentedControlItem, 4> filter_items = {{
-        SegmentedControlItem{.label = "\xE2\x94\x83", .tooltip = "Edges", .selected = selection_filter == SelectionFilter::Edges},
-        SegmentedControlItem{.label = "\xE2\x96\x88", .tooltip = "Faces", .selected = selection_filter == SelectionFilter::Faces},
-        SegmentedControlItem{.label = "\xE2\x9C\xB7", .tooltip = "Points", .selected = selection_filter == SelectionFilter::Points},
-        SegmentedControlItem{.label = "\xE2\x97\x86", .tooltip = "Advanced", .selected = selection_filter == SelectionFilter::Advanced},
+    const std::array<SegmentedControlItem, 3> filter_items = {{
+        SegmentedControlItem{
+            .label = "\xE2\x96\xB3",
+            .tooltip = "Edge selection",
+            .shortcut = edge_shortcut,
+            .selected = selection_filters.edges
+        },
+        SegmentedControlItem{
+            .label = "\xE2\x96\xB2",
+            .tooltip = "Face selection",
+            .shortcut = face_shortcut,
+            .selected = selection_filters.faces
+        },
+        SegmentedControlItem{
+            .label = "\xE2\xA0\x95",
+            .tooltip = "Point selection",
+            .shortcut = point_shortcut,
+            .selected = selection_filters.points
+        },
     }};
     const int clicked_filter_item = drawSegmentedControl("viewport_filter", filter_top_right, filter_items);
     if (clicked_filter_item == 0) {
-        selection_filter = SelectionFilter::Edges;
+        on_toggle_edges();
     } else if (clicked_filter_item == 1) {
-        selection_filter = SelectionFilter::Faces;
+        on_toggle_faces();
     } else if (clicked_filter_item == 2) {
-        selection_filter = SelectionFilter::Points;
-    } else if (clicked_filter_item == 3) {
-        selection_filter = SelectionFilter::Advanced;
+        on_toggle_points();
     }
 
     const ViewportGizmoResult gizmo_result = drawViewportGizmo(

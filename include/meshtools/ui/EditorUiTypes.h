@@ -35,11 +35,10 @@ inline const char* panModifierName(PanModifier modifier) {
     return "Unknown";
 }
 
-enum class SelectionFilter {
-    Edges,
-    Faces,
-    Points,
-    Advanced,
+struct SelectionFilters {
+    bool edges = false;
+    bool faces = true;
+    bool points = false;
 };
 
 using UpAxis = mesh::UpAxis;

@@ -35,7 +35,7 @@ class EditorUi {
 
   private:
     void triggerShortcutAction(ShortcutCommand action, EditorUiActions* actions);
-    SelectionFilter selection_filter_ = SelectionFilter::Faces;
+    SelectionFilters selection_filters_{};
     ImVec4 clear_color_ = ImVec4(0.10F, 0.12F, 0.15F, 1.00F);
     ViewportControlSettings viewport_control_settings_{};
     GraphicsQualitySettings graphics_quality_settings_{};

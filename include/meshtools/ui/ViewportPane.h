@@ -19,12 +19,18 @@ class ViewportPane {
         const ViewportControlSettings& viewport_control_settings,
         const FileImportSettings& default_file_import_settings,
         ViewportDisplaySettings& viewport_display_settings,
-        SelectionFilter& selection_filter,
+        SelectionFilters& selection_filters,
         std::string_view wireframe_shortcut,
         std::string_view shade_triangles_shortcut,
+        std::string_view edge_shortcut,
+        std::string_view face_shortcut,
+        std::string_view point_shortcut,
         EditorUiActions* actions,
         const std::function<void()>& on_toggle_wireframe,
-        const std::function<void()>& on_toggle_shade_triangles
+        const std::function<void()>& on_toggle_shade_triangles,
+        const std::function<void()>& on_toggle_edges,
+        const std::function<void()>& on_toggle_faces,
+        const std::function<void()>& on_toggle_points
     );
 
     void setTexture(std::uint32_t texture_id);

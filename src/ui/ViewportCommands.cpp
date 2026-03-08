@@ -2,6 +2,21 @@
 
 namespace meshtools::ui {
 
+namespace {
+
+void logSelectionState(const char* label, bool enabled, EditorUiActions* actions) {
+    if (actions == nullptr) {
+        return;
+    }
+
+    actions->event_logs.push_back(EditorUiLogEvent{
+        .origin = "VIEWPORT",
+        .message = std::string(label) + (enabled ? " enabled." : " disabled."),
+    });
+}
+
+}  // namespace
+
 void toggleWireframe(ViewportDisplaySettings& viewport_display_settings, EditorUiActions* actions) {
     viewport_display_settings.show_wireframe = !viewport_display_settings.show_wireframe;
     if (actions != nullptr) {
@@ -24,14 +39,29 @@ void toggleShadeTriangles(ViewportDisplaySettings& viewport_display_settings, Ed
     }
 }
 
+void toggleEdgeSelection(SelectionFilters& selection_filters, EditorUiActions* actions) {
+    selection_filters.edges = !selection_filters.edges;
+    logSelectionState("Edge selection", selection_filters.edges, actions);
+}
+
+void toggleFaceSelection(SelectionFilters& selection_filters, EditorUiActions* actions) {
+    selection_filters.faces = !selection_filters.faces;
+    logSelectionState("Face selection", selection_filters.faces, actions);
+}
+
+void togglePointSelection(SelectionFilters& selection_filters, EditorUiActions* actions) {
+    selection_filters.points = !selection_filters.points;
+    logSelectionState("Point selection", selection_filters.points, actions);
+}
+
 void resetViewport(
     ViewportDisplaySettings& viewport_display_settings,
-    SelectionFilter& selection_filter,
+    SelectionFilters& selection_filters,
     EditorUiActions* actions
 ) {
     viewport_display_settings.show_wireframe = true;
     viewport_display_settings.shade_triangles = true;
-    selection_filter = SelectionFilter::Edges;
+    selection_filters = SelectionFilters{};
 
     if (actions != nullptr) {
         actions->viewport_camera.reset = true;

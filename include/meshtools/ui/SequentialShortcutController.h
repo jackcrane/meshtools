@@ -11,6 +11,9 @@ namespace meshtools::ui {
 enum class ShortcutCommand {
     ToggleWireframe,
     ToggleShadeTriangles,
+    ToggleEdgeSelection,
+    ToggleFaceSelection,
+    TogglePointSelection,
     ResetViewport,
 };
 
@@ -39,6 +42,7 @@ class SequentialShortcutController {
         ImGuiKey first_key = ImGuiKey_None;
         ImVec2 menu_anchor = ImVec2(0.0F, 0.0F);
         double started_at_seconds = 0.0;
+        bool first_key_released = false;
         bool menu_visible = false;
         bool menu_hovered_once = false;
     };
