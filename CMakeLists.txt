@@ -46,6 +46,7 @@ meshtools_set_project_warnings(meshtools_warnings "${MESHTOOLS_WARNINGS_AS_ERROR
 add_library(meshtools_core STATIC
     src/app/EditorApplication.cpp
     src/io/MeshImporter.cpp
+    src/io/ProjectArchive.cpp
     src/mesh/MeshDocument.cpp
     src/platform/GlfwWindow.cpp
     src/render/ViewportRenderer.cpp

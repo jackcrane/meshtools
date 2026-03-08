@@ -5,7 +5,7 @@
 
 namespace meshtools::platform {
 
-std::optional<std::filesystem::path> openMeshFileDialog();
+std::optional<std::filesystem::path> openDocumentFileDialog();
+std::optional<std::filesystem::path> saveProjectFileDialog();
 
 }  // namespace meshtools::platform
-

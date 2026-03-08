@@ -77,7 +77,8 @@ struct EditorUiLogEvent {
 
 struct EditorUiActions {
     bool request_exit = false;
-    bool request_open_mesh = false;
+    bool request_open_document = false;
+    bool request_save_project = false;
     ViewportCameraInput viewport_camera;
     std::vector<EditorUiLogEvent> event_logs;
 };

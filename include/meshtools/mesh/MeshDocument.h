@@ -39,6 +39,7 @@ struct Bounds {
 
 struct MeshDocument {
     std::filesystem::path source_path;
+    std::string display_name_override;
     MeshFormat format = MeshFormat::Obj;
     UpAxis up_axis = UpAxis::Y;
     std::vector<Vec3> positions;

@@ -1,12 +1,16 @@
 #include "meshtools/app/EditorApplication.h"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
 #include <utility>
 
 #include "meshtools/io/MeshImporter.h"
+#include "meshtools/io/ProjectArchive.h"
 #include "meshtools/platform/FileDialog.h"
 #include "meshtools/platform/NativeMenu.h"
 
@@ -35,6 +39,14 @@ std::string makeTimestamp() {
     return stream.str();
 }
 
+std::string lowercaseExtension(const std::filesystem::path& path) {
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return extension;
+}
+
 }  // namespace
 
 EditorApplication::EditorApplication(AppConfig config)
@@ -42,7 +54,7 @@ EditorApplication::EditorApplication(AppConfig config)
       window_(platform::WindowConfig{.title = config_.name, .width = config_.width, .height = config_.height}),
       editor_ui_(window_.nativeHandle(), window_.glslVersion()) {
     platform::initializeNativeMenu(config_.name);
-    appendLog("APP", "Ready. Use Open to load an OBJ or STL mesh.");
+    appendLog("APP", "Ready. Use Open to load a .mt project or import an OBJ/STL mesh.");
     loadStartupSampleIfPresent();
 }
 
@@ -51,11 +63,14 @@ int EditorApplication::run() {
         window_.pollEvents();
 
         const platform::NativeMenuActions menu_actions = platform::consumePendingNativeMenuActions();
+        if (menu_actions.open_document) {
+            openDocument();
+        }
+        if (menu_actions.save_project) {
+            saveProject();
+        }
         if (menu_actions.open_settings) {
             editor_ui_.openSettingsWindow();
-        }
-        if (menu_actions.open_mesh) {
-            openMeshDocument();
         }
         if (menu_actions.quit) {
             window_.requestClose();
@@ -99,8 +114,12 @@ int EditorApplication::run() {
             appendLog(event_log.origin, event_log.message);
         }
 
-        if (actions.request_open_mesh) {
-            openMeshDocument();
+        if (actions.request_open_document) {
+            openDocument();
+        }
+
+        if (actions.request_save_project) {
+            saveProject();
         }
 
         if (actions.request_exit) {
@@ -121,14 +140,53 @@ void EditorApplication::appendLog(std::string origin, std::string message) {
     }
 }
 
-void EditorApplication::openMeshDocument() {
-    const std::optional<std::filesystem::path> selected_path = platform::openMeshFileDialog();
+void EditorApplication::openDocument() {
+    const std::optional<std::filesystem::path> selected_path = platform::openDocumentFileDialog();
     if (!selected_path.has_value()) {
-        appendLog("IMPORT", "Open canceled.");
+        appendLog("PROJECT", "Open canceled.");
+        return;
+    }
+
+    if (lowercaseExtension(*selected_path) == ".mt") {
+        loadProjectDocument(*selected_path);
         return;
     }
 
     loadMeshDocument(*selected_path);
+}
+
+void EditorApplication::saveProject() {
+    if (!active_document_.has_value()) {
+        appendLog("PROJECT", "Save skipped because there is no active project.");
+        return;
+    }
+
+    std::optional<std::filesystem::path> selected_path = platform::saveProjectFileDialog();
+    if (!selected_path.has_value()) {
+        appendLog("PROJECT", "Save canceled.");
+        return;
+    }
+
+    if (lowercaseExtension(*selected_path) != ".mt") {
+        selected_path->replace_extension(".mt");
+    }
+
+    io::ProjectArchiveSaveResult result = io::saveProjectArchive(
+        *selected_path,
+        io::ProjectArchiveSaveInput{
+            .document = *active_document_,
+            .log_messages = log_messages_,
+        }
+    );
+    if (!result.succeeded()) {
+        appendLog("PROJECT", "Failed to save project: " + result.error_message);
+        return;
+    }
+
+    active_project_path_ = *selected_path;
+    active_document_->source_path = *selected_path;
+    active_document_->display_name_override = selected_path->stem().string();
+    appendLog("PROJECT", "Saved project " + active_document_->displayName() + '.');
 }
 
 void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
@@ -139,10 +197,31 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     }
 
     active_document_ = std::move(result.document);
+    active_document_->display_name_override.clear();
     active_document_->up_axis = editor_ui_.fileImportSettings().up_axis;
+    active_project_path_.clear();
     appendLog(
         "IMPORT",
         "Loaded " + active_document_->displayName() +
+        " (" + active_document_->formatLabel() + ", " +
+        std::to_string(active_document_->positions.size()) + " vertices, " +
+        std::to_string(active_document_->triangles.size()) + " triangles)."
+    );
+}
+
+void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
+    io::ProjectArchiveLoadResult result = io::loadProjectArchive(path);
+    if (!result.succeeded()) {
+        appendLog("PROJECT", "Failed to open project: " + result.error_message);
+        return;
+    }
+
+    active_document_ = std::move(result.document);
+    active_project_path_ = path;
+    log_messages_ = std::move(result.log_messages);
+    appendLog(
+        "PROJECT",
+        "Opened " + active_document_->displayName() +
         " (" + active_document_->formatLabel() + ", " +
         std::to_string(active_document_->positions.size()) + " vertices, " +
         std::to_string(active_document_->triangles.size()) + " triangles)."

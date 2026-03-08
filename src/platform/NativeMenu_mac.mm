@@ -7,15 +7,21 @@ using meshtools::platform::NativeMenuActions;
 static NativeMenuActions g_pending_actions;
 
 @interface MeshToolsMenuTarget : NSObject
-- (void)openMesh:(id)sender;
+- (void)openDocument:(id)sender;
+- (void)saveProject:(id)sender;
 - (void)openSettings:(id)sender;
 - (void)quitApplication:(id)sender;
 @end
 
 @implementation MeshToolsMenuTarget
-- (void)openMesh:(id)sender {
+- (void)openDocument:(id)sender {
     (void)sender;
-    g_pending_actions.open_mesh = true;
+    g_pending_actions.open_document = true;
+}
+
+- (void)saveProject:(id)sender {
+    (void)sender;
+    g_pending_actions.save_project = true;
 }
 
 - (void)openSettings:(id)sender {
@@ -62,9 +68,13 @@ void initializeNativeMenu(const std::string& app_name) {
         [menu_bar addItem:file_menu_item];
 
         NSMenu* file_menu = [[NSMenu alloc] initWithTitle:@"File"];
-        NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:@"Open…" action:@selector(openMesh:) keyEquivalent:@"o"];
+        NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:@"Open…" action:@selector(openDocument:) keyEquivalent:@"o"];
         [open_item setTarget:menuTarget()];
         [file_menu addItem:open_item];
+
+        NSMenuItem* save_item = [[NSMenuItem alloc] initWithTitle:@"Save Project…" action:@selector(saveProject:) keyEquivalent:@"s"];
+        [save_item setTarget:menuTarget()];
+        [file_menu addItem:save_item];
         [file_menu_item setSubmenu:file_menu];
 
         [NSApp setMainMenu:menu_bar];

@@ -26,8 +26,10 @@ class EditorApplication {
 
   private:
     void appendLog(std::string origin, std::string message);
-    void openMeshDocument();
+    void openDocument();
+    void saveProject();
     void loadMeshDocument(const std::filesystem::path& path);
+    void loadProjectDocument(const std::filesystem::path& path);
     void loadStartupSampleIfPresent();
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
 
@@ -36,6 +38,7 @@ class EditorApplication {
     render::ViewportRenderer viewport_renderer_;
     ui::EditorUi editor_ui_;
     std::optional<mesh::MeshDocument> active_document_;
+    std::filesystem::path active_project_path_;
     std::vector<std::string> log_messages_;
     ui::ViewportCameraInput pending_viewport_camera_input_;
 };

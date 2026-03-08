@@ -12,10 +12,26 @@ void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) const 
     ImGui::Begin(kEditorLeftPaneWindowName, nullptr, pane_flags);
     ImGui::TextUnformatted("Scene");
     ImGui::Separator();
+    if (ImGui::Button("Open…") && actions != nullptr) {
+        actions->request_open_document = true;
+    }
+    ImGui::SameLine();
+    const bool can_save_project = state.active_document != nullptr;
+    if (!can_save_project) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button("Save Project…") && actions != nullptr) {
+        actions->request_save_project = true;
+    }
+    if (!can_save_project) {
+        ImGui::EndDisabled();
+    }
+    ImGui::Spacing();
+
     if (state.active_document != nullptr) {
         ImGui::Selectable(state.active_document->displayName().c_str(), true);
     } else {
-        ImGui::TextDisabled("No mesh loaded");
+        ImGui::TextDisabled("No project loaded");
     }
 
     ImGui::Spacing();
@@ -47,7 +63,7 @@ void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) const 
             ImGui::Text("Max: %.3f %.3f %.3f", document.bounds.maximum.x, document.bounds.maximum.y, document.bounds.maximum.z);
         }
     } else {
-        ImGui::TextWrapped("Use File > Open to load an OBJ or STL mesh.");
+        ImGui::TextWrapped("Use Open to load a .mt project or import an OBJ/STL mesh, then Save Project to package it.");
     }
 
     ImGui::End();

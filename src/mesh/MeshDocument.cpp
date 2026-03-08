@@ -14,6 +14,10 @@ const char* upAxisName(UpAxis axis) {
 }
 
 std::string MeshDocument::displayName() const {
+    if (!display_name_override.empty()) {
+        return display_name_override;
+    }
+
     if (source_path.filename().empty()) {
         return "Untitled";
     }

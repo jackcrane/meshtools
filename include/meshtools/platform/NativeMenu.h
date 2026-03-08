@@ -5,7 +5,8 @@
 namespace meshtools::platform {
 
 struct NativeMenuActions {
-    bool open_mesh = false;
+    bool open_document = false;
+    bool save_project = false;
     bool open_settings = false;
     bool quit = false;
 };
