@@ -1,6 +1,7 @@
 #include "meshtools/ui/SequentialShortcutController.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace meshtools::ui {
 namespace {
@@ -205,6 +206,35 @@ void SequentialShortcutController::drawMenu(const std::function<void(ShortcutCom
 
     ImGui::End();
     ImGui::PopStyleVar(2);
+}
+
+std::string SequentialShortcutController::shortcutLabel(ShortcutCommand command) const {
+    const auto match = std::find_if(
+        bindings_.begin(),
+        bindings_.end(),
+        [command](const Binding& binding) {
+            return binding.command == command;
+        }
+    );
+    if (match == bindings_.end()) {
+        return {};
+    }
+
+    const char* first_key_name = ImGui::GetKeyName(match->first_key);
+    const char* second_key_name = ImGui::GetKeyName(match->second_key);
+    if (first_key_name == nullptr || second_key_name == nullptr) {
+        return {};
+    }
+
+    std::string label = first_key_name;
+    if (!label.empty()) {
+        label += "";
+    }
+    label += second_key_name;
+    std::transform(label.begin(), label.end(), label.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return label;
 }
 
 void SequentialShortcutController::beginSequence(ImGuiKey first_key, const ImVec2& menu_anchor) {

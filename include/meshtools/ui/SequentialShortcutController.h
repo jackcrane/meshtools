@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "imgui.h"
@@ -24,6 +25,7 @@ class SequentialShortcutController {
 
     void handleInput(const std::function<void(ShortcutCommand)>& on_trigger);
     void drawMenu(const std::function<void(ShortcutCommand)>& on_trigger);
+    [[nodiscard]] std::string shortcutLabel(ShortcutCommand command) const;
 
   private:
     struct Binding {

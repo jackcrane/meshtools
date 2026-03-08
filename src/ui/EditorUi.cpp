@@ -23,6 +23,10 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
     sequential_shortcuts_.handleInput([this, &actions](ShortcutCommand command) {
         triggerShortcutAction(command, &actions);
     });
+    const std::string wireframe_shortcut =
+        sequential_shortcuts_.shortcutLabel(ShortcutCommand::ToggleWireframe);
+    const std::string shade_triangles_shortcut =
+        sequential_shortcuts_.shortcutLabel(ShortcutCommand::ToggleShadeTriangles);
 
     dock_layout_.draw();
     left_pane_.draw(state, &actions);
@@ -33,6 +37,8 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         file_import_settings_,
         viewport_display_settings_,
         selection_filter_,
+        wireframe_shortcut,
+        shade_triangles_shortcut,
         &actions,
         [this, &actions]() { toggleWireframe(viewport_display_settings_, &actions); },
         [this, &actions]() { toggleShadeTriangles(viewport_display_settings_, &actions); }

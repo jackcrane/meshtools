@@ -34,6 +34,8 @@ void ViewportPane::draw(
     const FileImportSettings& default_file_import_settings,
     ViewportDisplaySettings& viewport_display_settings,
     SelectionFilter& selection_filter,
+    std::string_view wireframe_shortcut,
+    std::string_view shade_triangles_shortcut,
     EditorUiActions* actions,
     const std::function<void()>& on_toggle_wireframe,
     const std::function<void()>& on_toggle_shade_triangles
@@ -87,8 +89,18 @@ void ViewportPane::draw(
     );
 
     const std::array<SegmentedControlItem, 2> display_items = {{
-        SegmentedControlItem{.label = "\xE2\x97\x87", .tooltip = "Show wireframe", .selected = viewport_display_settings.show_wireframe},
-        SegmentedControlItem{.label = "\xE2\x97\x86", .tooltip = "Shade tris", .selected = viewport_display_settings.shade_triangles},
+        SegmentedControlItem{
+            .label = "\xE2\x97\x87",
+            .tooltip = "Show wireframe",
+            .shortcut = wireframe_shortcut,
+            .selected = viewport_display_settings.show_wireframe
+        },
+        SegmentedControlItem{
+            .label = "\xE2\x97\x86",
+            .tooltip = "Shade tris",
+            .shortcut = shade_triangles_shortcut,
+            .selected = viewport_display_settings.shade_triangles
+        },
     }};
     const int clicked_display_item = drawSegmentedControl("viewport_display", controls_top_right, display_items);
     if (clicked_display_item == 0) {
@@ -178,6 +190,9 @@ int ViewportPane::drawSegmentedControl(
     const ImVec2& top_right,
     std::span<const SegmentedControlItem> items
 ) const {
+    constexpr ImVec4 inactive_button = ImVec4(0.30F, 0.33F, 0.37F, 1.0F);
+    constexpr ImVec4 inactive_hovered = ImVec4(0.36F, 0.39F, 0.44F, 1.0F);
+    constexpr ImVec4 inactive_text = ImVec4(0.88F, 0.90F, 0.93F, 1.0F);
     constexpr ImVec4 active_button = ImVec4(0.18F, 0.28F, 0.40F, 1.0F);
     constexpr ImVec4 active_hovered = ImVec4(0.22F, 0.33F, 0.46F, 1.0F);
     constexpr ImVec4 active_text = ImVec4(0.94F, 0.97F, 1.0F, 1.0F);
@@ -194,24 +209,25 @@ int ViewportPane::drawSegmentedControl(
         ImGui::SetCursorScreenPos(button_position);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0F);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0F);
-
-        if (item.selected) {
-            ImGui::PushStyleColor(ImGuiCol_Button, active_button);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, active_hovered);
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, active_hovered);
-            ImGui::PushStyleColor(ImGuiCol_Text, active_text);
-        }
+        ImGui::PushStyleColor(ImGuiCol_Button, item.selected ? active_button : inactive_button);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, item.selected ? active_hovered : inactive_hovered);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, item.selected ? active_hovered : inactive_hovered);
+        ImGui::PushStyleColor(ImGuiCol_Text, item.selected ? active_text : inactive_text);
 
         if (ImGui::Button(item.label, kOverlayButtonSize)) {
             clicked_index = static_cast<int>(index);
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", item.tooltip);
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(item.tooltip);
+            if (!item.shortcut.empty()) {
+                ImGui::SameLine(0.0F, 6.0F);
+                ImGui::TextDisabled("%.*s", static_cast<int>(item.shortcut.size()), item.shortcut.data());
+            }
+            ImGui::EndTooltip();
         }
 
-        if (item.selected) {
-            ImGui::PopStyleColor(4);
-        }
+        ImGui::PopStyleColor(4);
         ImGui::PopStyleVar(2);
     }
     ImGui::PopID();

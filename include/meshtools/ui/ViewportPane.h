@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <span>
+#include <string_view>
 
 #include "meshtools/ui/EditorUiTypes.h"
 
@@ -19,6 +20,8 @@ class ViewportPane {
         const FileImportSettings& default_file_import_settings,
         ViewportDisplaySettings& viewport_display_settings,
         SelectionFilter& selection_filter,
+        std::string_view wireframe_shortcut,
+        std::string_view shade_triangles_shortcut,
         EditorUiActions* actions,
         const std::function<void()>& on_toggle_wireframe,
         const std::function<void()>& on_toggle_shade_triangles
@@ -32,6 +35,7 @@ class ViewportPane {
     struct SegmentedControlItem {
         const char* label = "";
         const char* tooltip = "";
+        std::string_view shortcut;
         bool selected = false;
     };
 
