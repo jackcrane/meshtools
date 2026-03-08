@@ -25,7 +25,7 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
     });
 
     dock_layout_.draw();
-    left_pane_.draw(state);
+    left_pane_.draw(state, &actions);
     bottom_pane_.draw(state);
     viewport_pane_.draw(
         state,

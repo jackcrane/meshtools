@@ -16,7 +16,7 @@ class ViewportPane {
     void draw(
         const EditorUiState& state,
         const ViewportControlSettings& viewport_control_settings,
-        FileImportSettings& file_import_settings,
+        const FileImportSettings& default_file_import_settings,
         ViewportDisplaySettings& viewport_display_settings,
         SelectionFilter& selection_filter,
         EditorUiActions* actions,

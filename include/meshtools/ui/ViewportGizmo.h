@@ -19,7 +19,8 @@ struct ViewportGizmoResult {
 
 ViewportGizmoResult drawViewportGizmo(
     const ViewportGizmoConfig& config,
-    FileImportSettings& file_import_settings,
+    UpAxis default_up_axis,
+    mesh::MeshDocument* active_document,
     EditorUiActions* actions
 );
 

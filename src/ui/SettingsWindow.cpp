@@ -9,7 +9,7 @@ void SettingsWindow::open() {
 void SettingsWindow::draw(
     ViewportControlSettings& viewport_control_settings,
     GraphicsQualitySettings& graphics_quality_settings,
-    FileImportSettings& file_import_settings,
+    FileImportSettings& default_file_import_settings,
     EditorUiActions* actions
 ) {
     if (!open_) {
@@ -28,7 +28,7 @@ void SettingsWindow::draw(
     }
 
     ImGui::BeginChild("SettingsSections", ImVec2(180.0F, 0.0F), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
-    if (ImGui::Selectable("Viewport controls", selected_section_ == 0)) {
+    if (ImGui::Selectable("Viewport config", selected_section_ == 0)) {
         selected_section_ = 0;
     }
     if (ImGui::Selectable("Graphics quality", selected_section_ == 1)) {
@@ -43,7 +43,7 @@ void SettingsWindow::draw(
 
     ImGui::BeginChild("SettingsContent", ImVec2(0.0F, 0.0F), ImGuiChildFlags_Borders);
     if (selected_section_ == 0) {
-        ImGui::TextUnformatted("Viewport controls");
+        ImGui::TextUnformatted("Viewport config");
         ImGui::Separator();
         if (ImGui::Checkbox("Invert Y movement", &viewport_control_settings.invert_y_movement) && actions != nullptr) {
             actions->event_logs.push_back(EditorUiLogEvent{
@@ -71,6 +71,18 @@ void SettingsWindow::draw(
                 });
             }
         }
+
+        int selected_up_axis = default_file_import_settings.up_axis == UpAxis::Y ? 0 : 1;
+        constexpr const char* up_axis_options[] = {"Y", "Z"};
+        if (ImGui::Combo("Default up axis", &selected_up_axis, up_axis_options, IM_ARRAYSIZE(up_axis_options))) {
+            default_file_import_settings.up_axis = selected_up_axis == 0 ? UpAxis::Y : UpAxis::Z;
+            if (actions != nullptr) {
+                actions->event_logs.push_back(EditorUiLogEvent{
+                    .origin = "SETTINGS",
+                    .message = std::string("Default up axis set to ") + mesh::upAxisName(default_file_import_settings.up_axis) + ".",
+                });
+            }
+        }
     } else if (selected_section_ == 1) {
         ImGui::TextUnformatted("Graphics quality");
         ImGui::Separator();
@@ -91,21 +103,9 @@ void SettingsWindow::draw(
         ImGui::TextUnformatted("File import");
         ImGui::Separator();
 
-        int selected_up_axis = file_import_settings.up_axis == UpAxis::Y ? 0 : 1;
-        constexpr const char* up_axis_options[] = {"Y", "Z"};
-        if (ImGui::Combo("Up axis", &selected_up_axis, up_axis_options, IM_ARRAYSIZE(up_axis_options))) {
-            file_import_settings.up_axis = selected_up_axis == 0 ? UpAxis::Y : UpAxis::Z;
-            if (actions != nullptr) {
-                actions->event_logs.push_back(EditorUiLogEvent{
-                    .origin = "SETTINGS",
-                    .message = std::string("Up axis set to ") + upAxisName(file_import_settings.up_axis) + ".",
-                });
-            }
-        }
-
         ImGui::Spacing();
         ImGui::SeparatorText("Common conventions");
-        ImGui::TextWrapped("Different formats and tools use different axis conventions. This setting will be used to interpret imported meshes.");
+        ImGui::TextWrapped("Different formats and tools use different axis conventions. New projects start from the default up axis in Viewport config, but each project can override it in the inspector.");
         ImGui::Spacing();
         ImGui::BulletText("OBJ: commonly Y-up");
         ImGui::BulletText("STL: no standard up axis, often treated as Z-up for CAD/manufacturing workflows");

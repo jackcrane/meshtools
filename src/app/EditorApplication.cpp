@@ -43,7 +43,7 @@ EditorApplication::EditorApplication(AppConfig config)
       editor_ui_(window_.nativeHandle(), window_.glslVersion()) {
     platform::initializeNativeMenu(config_.name);
     appendLog("APP", "Ready. Use Open to load an OBJ or STL mesh.");
-    appendLog("APP", "Viewport controls: right drag orbits, shift-right drag pans, scroll zooms, R resets.");
+    appendLog("APP", "Viewport config: right drag orbits, shift-right drag pans, scroll zooms, R resets.");
     loadStartupSampleIfPresent();
 }
 
@@ -73,9 +73,10 @@ int EditorApplication::run() {
             render::ViewportRenderer::DisplaySettings{
                 .show_wireframe = editor_ui_.viewportDisplaySettings().show_wireframe,
                 .shade_triangles = editor_ui_.viewportDisplaySettings().shade_triangles,
-                .source_up_axis = editor_ui_.fileImportSettings().up_axis == ui::UpAxis::Y
-                    ? render::ViewportRenderer::UpAxis::Y
-                    : render::ViewportRenderer::UpAxis::Z,
+                .source_up_axis =
+                    !active_document_.has_value() || active_document_->up_axis == mesh::UpAxis::Y
+                        ? render::ViewportRenderer::UpAxis::Y
+                        : render::ViewportRenderer::UpAxis::Z,
             }
         );
         editor_ui_.setViewportTexture(viewport_renderer_.textureId());
@@ -139,6 +140,7 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     }
 
     active_document_ = std::move(result.document);
+    active_document_->up_axis = editor_ui_.fileImportSettings().up_axis;
     appendLog(
         "IMPORT",
         "Loaded " + active_document_->displayName() +

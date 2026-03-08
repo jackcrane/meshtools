@@ -47,7 +47,8 @@ OverlayVec3 applyUpAxisTransform(const OverlayVec3& vector, UpAxis up_axis) {
 
 ViewportGizmoResult drawViewportGizmo(
     const ViewportGizmoConfig& config,
-    FileImportSettings& file_import_settings,
+    UpAxis default_up_axis,
+    mesh::MeshDocument* active_document,
     EditorUiActions* actions
 ) {
     constexpr float gizmo_radius = 28.0F;
@@ -61,10 +62,12 @@ ViewportGizmoResult drawViewportGizmo(
         const char* label;
     };
 
+    const UpAxis up_axis = active_document != nullptr ? active_document->up_axis : default_up_axis;
+
     const GizmoAxis axes[] = {
-        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{1.0F, 0.0F, 0.0F}, file_import_settings.up_axis), .color = IM_COL32(231, 76, 60, 255), .label = "X"},
-        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{0.0F, 1.0F, 0.0F}, file_import_settings.up_axis), .color = IM_COL32(46, 204, 113, 255), .label = "Y"},
-        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{0.0F, 0.0F, 1.0F}, file_import_settings.up_axis), .color = IM_COL32(52, 152, 219, 255), .label = "Z"},
+        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{1.0F, 0.0F, 0.0F}, up_axis), .color = IM_COL32(231, 76, 60, 255), .label = "X"},
+        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{0.0F, 1.0F, 0.0F}, up_axis), .color = IM_COL32(46, 204, 113, 255), .label = "Y"},
+        GizmoAxis{.vector = applyUpAxisTransform(OverlayVec3{0.0F, 0.0F, 1.0F}, up_axis), .color = IM_COL32(52, 152, 219, 255), .label = "Z"},
     };
 
     std::array<std::pair<float, GizmoAxis>, 3> sorted_axes{};
@@ -108,12 +111,14 @@ ViewportGizmoResult drawViewportGizmo(
     );
     const bool gizmo_hovered = ImGui::IsItemHovered();
     if (ImGui::BeginPopupContextItem("ViewportGizmoContextMenu", ImGuiPopupFlags_MouseButtonRight)) {
-        if (ImGui::MenuItem("Switch y/z up")) {
-            file_import_settings.up_axis = file_import_settings.up_axis == UpAxis::Y ? UpAxis::Z : UpAxis::Y;
+        if (active_document == nullptr) {
+            ImGui::TextDisabled("Open a project to change its up axis.");
+        } else if (ImGui::MenuItem("Switch y/z up")) {
+            active_document->up_axis = active_document->up_axis == UpAxis::Y ? UpAxis::Z : UpAxis::Y;
             if (actions != nullptr) {
                 actions->event_logs.push_back(EditorUiLogEvent{
-                    .origin = "SETTINGS",
-                    .message = std::string("Up axis set to ") + upAxisName(file_import_settings.up_axis) + ".",
+                    .origin = "PROJECT",
+                    .message = std::string("Up axis set to ") + mesh::upAxisName(active_document->up_axis) + ".",
                 });
             }
         }

@@ -31,7 +31,7 @@ ViewportPane::ViewportPane(GLFWwindow* window)
 void ViewportPane::draw(
     const EditorUiState& state,
     const ViewportControlSettings& viewport_control_settings,
-    FileImportSettings& file_import_settings,
+    const FileImportSettings& default_file_import_settings,
     ViewportDisplaySettings& viewport_display_settings,
     SelectionFilter& selection_filter,
     EditorUiActions* actions,
@@ -126,7 +126,8 @@ void ViewportPane::draw(
             .camera_yaw = state.camera_yaw,
             .camera_pitch = state.camera_pitch,
         },
-        file_import_settings,
+        default_file_import_settings.up_axis,
+        state.active_document,
         actions
     );
 
@@ -150,10 +151,6 @@ void ViewportPane::draw(
             actions->viewport_camera.orbit_delta.x += io.MouseDelta.x;
             const float y_direction = viewport_control_settings.invert_y_movement ? -1.0F : 1.0F;
             actions->viewport_camera.orbit_delta.y += io.MouseDelta.y * y_direction;
-        }
-
-        if (ImGui::IsKeyPressed(ImGuiKey_R)) {
-            actions->viewport_camera.reset = true;
         }
     }
 

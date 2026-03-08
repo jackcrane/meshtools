@@ -12,6 +12,13 @@ enum class MeshFormat {
     Stl,
 };
 
+enum class UpAxis {
+    Y,
+    Z,
+};
+
+[[nodiscard]] const char* upAxisName(UpAxis axis);
+
 struct Vec3 {
     float x = 0.0F;
     float y = 0.0F;
@@ -33,6 +40,7 @@ struct Bounds {
 struct MeshDocument {
     std::filesystem::path source_path;
     MeshFormat format = MeshFormat::Obj;
+    UpAxis up_axis = UpAxis::Y;
     std::vector<Vec3> positions;
     std::vector<Vec3> normals;
     std::vector<Triangle> triangles;
@@ -43,4 +51,3 @@ struct MeshDocument {
 };
 
 }  // namespace meshtools::mesh
-

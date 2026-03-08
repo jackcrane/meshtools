@@ -6,7 +6,7 @@ namespace meshtools::ui {
 
 class LeftPane {
   public:
-    void draw(const EditorUiState& state) const;
+    void draw(const EditorUiState& state, EditorUiActions* actions) const;
 };
 
 }  // namespace meshtools::ui

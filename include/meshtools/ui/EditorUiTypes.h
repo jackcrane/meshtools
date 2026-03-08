@@ -10,7 +10,7 @@
 namespace meshtools::ui {
 
 struct EditorUiState {
-    const mesh::MeshDocument* active_document = nullptr;
+    mesh::MeshDocument* active_document = nullptr;
     std::span<const std::string> log_messages;
     float camera_yaw = 0.0F;
     float camera_pitch = 0.0F;
@@ -42,21 +42,7 @@ enum class SelectionFilter {
     Advanced,
 };
 
-enum class UpAxis {
-    Y,
-    Z,
-};
-
-inline const char* upAxisName(UpAxis axis) {
-    switch (axis) {
-        case UpAxis::Y:
-            return "Y";
-        case UpAxis::Z:
-            return "Z";
-    }
-
-    return "Unknown";
-}
+using UpAxis = mesh::UpAxis;
 
 struct ViewportControlSettings {
     bool invert_y_movement = true;

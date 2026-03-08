@@ -10,7 +10,7 @@ class SettingsWindow {
     void draw(
         ViewportControlSettings& viewport_control_settings,
         GraphicsQualitySettings& graphics_quality_settings,
-        FileImportSettings& file_import_settings,
+        FileImportSettings& default_file_import_settings,
         EditorUiActions* actions
     );
 
