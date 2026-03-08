@@ -29,6 +29,9 @@ int EditorApplication::run() {
             render::ViewportRenderer::DisplaySettings{
                 .show_wireframe = editor_ui_.viewportDisplaySettings().show_wireframe,
                 .shade_triangles = editor_ui_.viewportDisplaySettings().shade_triangles,
+                .source_up_axis = editor_ui_.fileImportSettings().up_axis == ui::UpAxis::Y
+                    ? render::ViewportRenderer::UpAxis::Y
+                    : render::ViewportRenderer::UpAxis::Z,
             }
         );
         editor_ui_.setViewportTexture(viewport_renderer_.textureId());

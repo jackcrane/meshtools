@@ -566,6 +566,9 @@ void EditorUi::drawSettingsWindow() {
     if (ImGui::Selectable("Graphics quality", selected_settings_section_ == 1)) {
         selected_settings_section_ = 1;
     }
+    if (ImGui::Selectable("File import", selected_settings_section_ == 2)) {
+        selected_settings_section_ = 2;
+    }
     ImGui::EndChild();
 
     ImGui::SameLine();
@@ -592,6 +595,25 @@ void EditorUi::drawSettingsWindow() {
             100,
             "%d%%"
         );
+    } else if (selected_settings_section_ == 2) {
+        ImGui::TextUnformatted("File import");
+        ImGui::Separator();
+
+        int selected_up_axis = file_import_settings_.up_axis == UpAxis::Y ? 0 : 1;
+        constexpr const char* up_axis_options[] = {"Y", "Z"};
+        if (ImGui::Combo("Up axis", &selected_up_axis, up_axis_options, IM_ARRAYSIZE(up_axis_options))) {
+            file_import_settings_.up_axis = selected_up_axis == 0 ? UpAxis::Y : UpAxis::Z;
+        }
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Common conventions");
+        ImGui::TextWrapped("Different formats and tools use different axis conventions. This setting will be used to interpret imported meshes.");
+        ImGui::Spacing();
+        ImGui::BulletText("OBJ: commonly Y-up");
+        ImGui::BulletText("STL: no standard up axis, often treated as Z-up for CAD/manufacturing workflows");
+        ImGui::BulletText("glTF: Y-up");
+        ImGui::BulletText("FBX: often Y-up, but many DCC pipelines also use Z-up");
+        ImGui::BulletText("Blender scenes: typically Z-up");
     }
     ImGui::EndChild();
 
@@ -613,6 +635,10 @@ void EditorUi::endFrame(GLFWwindow* window) const {
 
 const ImVec4& EditorUi::clearColor() const {
     return clear_color_;
+}
+
+const FileImportSettings& EditorUi::fileImportSettings() const {
+    return file_import_settings_;
 }
 
 const ViewportDisplaySettings& EditorUi::viewportDisplaySettings() const {

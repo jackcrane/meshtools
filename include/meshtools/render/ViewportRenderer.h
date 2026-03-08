@@ -10,9 +10,15 @@ namespace meshtools::render {
 
 class ViewportRenderer {
   public:
+    enum class UpAxis {
+        Y,
+        Z,
+    };
+
     struct DisplaySettings {
         bool show_wireframe = true;
         bool shade_triangles = true;
+        UpAxis source_up_axis = UpAxis::Y;
     };
 
     struct CameraState {
@@ -46,8 +52,9 @@ class ViewportRenderer {
         std::filesystem::path source_path;
         std::size_t vertex_count = 0;
         std::size_t triangle_count = 0;
+        UpAxis source_up_axis = UpAxis::Y;
 
-        [[nodiscard]] bool matches(const mesh::MeshDocument* document) const;
+        [[nodiscard]] bool matches(const mesh::MeshDocument* document, UpAxis up_axis) const;
     };
 
     struct Vertex {
@@ -64,7 +71,7 @@ class ViewportRenderer {
     void ensureShaderProgram();
     void ensureAxisResources();
     void ensurePlaceholderMesh();
-    void syncMesh(const mesh::MeshDocument* document);
+    void syncMesh(const mesh::MeshDocument* document, UpAxis up_axis);
     void uploadGeometry(const std::vector<Vertex>& vertices, const std::vector<std::uint32_t>& indices);
 
     std::uint32_t framebuffer_ = 0;

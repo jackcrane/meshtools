@@ -144,6 +144,14 @@ mesh::Vec3 cross(const mesh::Vec3& left, const mesh::Vec3& right) {
     };
 }
 
+mesh::Vec3 rotateXAxisNegative90(const mesh::Vec3& value) {
+    return mesh::Vec3{
+        .x = value.x,
+        .y = value.z,
+        .z = -value.y,
+    };
+}
+
 std::uint32_t compileShader(std::uint32_t shader_type, const char* source) {
     const std::uint32_t shader = glCreateShader(shader_type);
     glShaderSource(shader, 1, &source, nullptr);
@@ -342,7 +350,7 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
     ensureFramebuffer(safe_width, safe_height);
     ensureShaderProgram();
     ensureAxisResources();
-    syncMesh(document);
+    syncMesh(document, display_settings.source_up_axis);
 
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
     glViewport(0, 0, safe_width, safe_height);
@@ -450,14 +458,15 @@ const ViewportRenderer::CameraState& ViewportRenderer::camera() const {
     return camera_;
 }
 
-bool ViewportRenderer::UploadedMeshState::matches(const mesh::MeshDocument* document) const {
+bool ViewportRenderer::UploadedMeshState::matches(const mesh::MeshDocument* document, UpAxis up_axis) const {
     if (document == nullptr) {
-        return source_path.empty() && vertex_count == 0 && triangle_count == 0;
+        return source_path.empty() && vertex_count == 0 && triangle_count == 0 && source_up_axis == up_axis;
     }
 
     return source_path == document->source_path &&
            vertex_count == document->positions.size() &&
-           triangle_count == document->triangles.size();
+           triangle_count == document->triangles.size() &&
+           source_up_axis == up_axis;
 }
 
 void ViewportRenderer::ensureFramebuffer(int width, int height) {
@@ -555,15 +564,15 @@ void ViewportRenderer::ensurePlaceholderMesh() {
     uploaded_mesh_state_ = {};
 }
 
-void ViewportRenderer::syncMesh(const mesh::MeshDocument* document) {
+void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_axis) {
     if (document == nullptr) {
-        if (index_count_ == 0 || !uploaded_mesh_state_.matches(nullptr)) {
+        if (index_count_ == 0 || !uploaded_mesh_state_.matches(nullptr, up_axis)) {
             ensurePlaceholderMesh();
         }
         return;
     }
 
-    if (uploaded_mesh_state_.matches(document)) {
+    if (uploaded_mesh_state_.matches(document, up_axis)) {
         return;
     }
 
@@ -584,11 +593,15 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document) {
     std::vector<mesh::Vec3> normalized_positions;
     normalized_positions.reserve(document->positions.size());
     for (const mesh::Vec3& position : document->positions) {
-        normalized_positions.push_back(mesh::Vec3{
+        mesh::Vec3 normalized_position{
             .x = (position.x - center.x) * model_scale,
             .y = (position.y - center.y) * model_scale,
             .z = (position.z - center.z) * model_scale,
-        });
+        };
+        if (up_axis == UpAxis::Z) {
+            normalized_position = rotateXAxisNegative90(normalized_position);
+        }
+        normalized_positions.push_back(normalized_position);
     }
 
     std::vector<mesh::Vec3> accumulated_normals(document->positions.size(), mesh::Vec3{});
@@ -625,6 +638,7 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document) {
         .source_path = document->source_path,
         .vertex_count = document->positions.size(),
         .triangle_count = document->triangles.size(),
+        .source_up_axis = up_axis,
     };
 }
 

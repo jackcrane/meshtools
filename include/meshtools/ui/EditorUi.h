@@ -30,6 +30,11 @@ enum class SelectionFilter {
     Advanced,
 };
 
+enum class UpAxis {
+    Y,
+    Z,
+};
+
 struct ViewportControlSettings {
     bool invert_y_movement = true;
     bool invert_zoom = false;
@@ -38,6 +43,10 @@ struct ViewportControlSettings {
 
 struct GraphicsQualitySettings {
     int render_resolution_percent = 100;
+};
+
+struct FileImportSettings {
+    UpAxis up_axis = UpAxis::Y;
 };
 
 struct ViewportDisplaySettings {
@@ -72,6 +81,7 @@ class EditorUi {
     void setViewportTexture(std::uint32_t texture_id);
 
     [[nodiscard]] const ImVec4& clearColor() const;
+    [[nodiscard]] const FileImportSettings& fileImportSettings() const;
     [[nodiscard]] const ViewportDisplaySettings& viewportDisplaySettings() const;
     [[nodiscard]] ImVec2 viewportRenderSize() const;
     [[nodiscard]] ImVec2 viewportRenderTargetSize() const;
@@ -107,6 +117,7 @@ class EditorUi {
     std::uint32_t viewport_texture_id_ = 0;
     ViewportControlSettings viewport_control_settings_{};
     GraphicsQualitySettings graphics_quality_settings_{};
+    FileImportSettings file_import_settings_{};
     ViewportDisplaySettings viewport_display_settings_{};
 };
 
