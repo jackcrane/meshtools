@@ -43,7 +43,6 @@ EditorApplication::EditorApplication(AppConfig config)
       editor_ui_(window_.nativeHandle(), window_.glslVersion()) {
     platform::initializeNativeMenu(config_.name);
     appendLog("APP", "Ready. Use Open to load an OBJ or STL mesh.");
-    appendLog("APP", "Viewport config: right drag orbits, shift-right drag pans, scroll zooms, R resets.");
     loadStartupSampleIfPresent();
 }
 
