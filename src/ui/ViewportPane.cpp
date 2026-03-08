@@ -1,0 +1,224 @@
+#include "meshtools/ui/ViewportPane.h"
+
+#include <algorithm>
+#include <array>
+
+#include <GLFW/glfw3.h>
+
+#include "meshtools/ui/EditorDockLayout.h"
+#include "meshtools/ui/ViewportGizmo.h"
+
+namespace meshtools::ui {
+namespace {
+
+constexpr ImVec2 kOverlayButtonSize = ImVec2(22.0F, 20.0F);
+constexpr float kOverlayGroupGap = 8.0F;
+constexpr float kOverlayPadding = 10.0F;
+
+bool isCmdOrCtrlHeld(const ImGuiIO& io) {
+#if defined(__APPLE__)
+    return io.KeySuper;
+#else
+    return io.KeyCtrl;
+#endif
+}
+
+}  // namespace
+
+ViewportPane::ViewportPane(GLFWwindow* window)
+    : window_(window) {}
+
+void ViewportPane::draw(
+    const EditorUiState& state,
+    const ViewportControlSettings& viewport_control_settings,
+    FileImportSettings& file_import_settings,
+    ViewportDisplaySettings& viewport_display_settings,
+    SelectionFilter& selection_filter,
+    EditorUiActions* actions,
+    const std::function<void()>& on_toggle_wireframe,
+    const std::function<void()>& on_toggle_shade_triangles
+) {
+    constexpr ImGuiWindowFlags pane_flags =
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0F, 0.0F));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
+    ImGui::Begin(kEditorViewportWindowName, nullptr, pane_flags);
+    ImGui::PopStyleVar(2);
+    render_size_ = ImGui::GetContentRegionAvail();
+    render_size_.x = std::max(render_size_.x, 1.0F);
+    render_size_.y = std::max(render_size_.y, 1.0F);
+
+    if (window_ != nullptr) {
+        int window_width = 0;
+        int window_height = 0;
+        int framebuffer_width = 0;
+        int framebuffer_height = 0;
+        glfwGetWindowSize(window_, &window_width, &window_height);
+        glfwGetFramebufferSize(window_, &framebuffer_width, &framebuffer_height);
+
+        const float scale_x = window_width > 0 ? static_cast<float>(framebuffer_width) / static_cast<float>(window_width) : 1.0F;
+        const float scale_y = window_height > 0 ? static_cast<float>(framebuffer_height) / static_cast<float>(window_height) : 1.0F;
+        framebuffer_scale_ = ImVec2(std::max(scale_x, 1.0F), std::max(scale_y, 1.0F));
+    } else {
+        framebuffer_scale_ = ImVec2(1.0F, 1.0F);
+    }
+
+    if (texture_id_ != 0) {
+        ImGui::Image(
+            static_cast<ImTextureID>(texture_id_),
+            render_size_,
+            ImVec2(0.0F, 1.0F),
+            ImVec2(1.0F, 0.0F)
+        );
+    }
+    const bool viewport_image_hovered = ImGui::IsItemHovered();
+
+    const ImVec2 viewport_rect_min = ImGui::GetItemRectMin();
+    const ImVec2 viewport_rect_max = ImGui::GetItemRectMax();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    const ImVec2 controls_top_right = ImVec2(
+        viewport_rect_max.x - kOverlayPadding,
+        viewport_rect_min.y + kOverlayPadding
+    );
+
+    const std::array<SegmentedControlItem, 2> display_items = {{
+        SegmentedControlItem{.label = "\xE2\x97\x87", .tooltip = "Show wireframe", .selected = viewport_display_settings.show_wireframe},
+        SegmentedControlItem{.label = "\xE2\x97\x86", .tooltip = "Shade tris", .selected = viewport_display_settings.shade_triangles},
+    }};
+    const int clicked_display_item = drawSegmentedControl("viewport_display", controls_top_right, display_items);
+    if (clicked_display_item == 0) {
+        on_toggle_wireframe();
+    } else if (clicked_display_item == 1) {
+        on_toggle_shade_triangles();
+    }
+
+    const ImVec2 filter_top_right = ImVec2(
+        controls_top_right.x,
+        controls_top_right.y + (static_cast<float>(display_items.size()) * kOverlayButtonSize.y) + kOverlayGroupGap
+    );
+    const std::array<SegmentedControlItem, 4> filter_items = {{
+        SegmentedControlItem{.label = "\xE2\x94\x83", .tooltip = "Edges", .selected = selection_filter == SelectionFilter::Edges},
+        SegmentedControlItem{.label = "\xE2\x96\x88", .tooltip = "Faces", .selected = selection_filter == SelectionFilter::Faces},
+        SegmentedControlItem{.label = "\xE2\x9C\xB7", .tooltip = "Points", .selected = selection_filter == SelectionFilter::Points},
+        SegmentedControlItem{.label = "\xE2\x97\x86", .tooltip = "Advanced", .selected = selection_filter == SelectionFilter::Advanced},
+    }};
+    const int clicked_filter_item = drawSegmentedControl("viewport_filter", filter_top_right, filter_items);
+    if (clicked_filter_item == 0) {
+        selection_filter = SelectionFilter::Edges;
+    } else if (clicked_filter_item == 1) {
+        selection_filter = SelectionFilter::Faces;
+    } else if (clicked_filter_item == 2) {
+        selection_filter = SelectionFilter::Points;
+    } else if (clicked_filter_item == 3) {
+        selection_filter = SelectionFilter::Advanced;
+    }
+
+    const ViewportGizmoResult gizmo_result = drawViewportGizmo(
+        ViewportGizmoConfig{
+            .draw_list = draw_list,
+            .viewport_rect_min = viewport_rect_min,
+            .viewport_rect_max = viewport_rect_max,
+            .camera_yaw = state.camera_yaw,
+            .camera_pitch = state.camera_pitch,
+        },
+        file_import_settings,
+        actions
+    );
+
+    if (actions != nullptr && viewport_image_hovered && !gizmo_result.hovered && !gizmo_result.context_open) {
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.MouseWheel != 0.0F) {
+            const float zoom_direction = viewport_control_settings.invert_zoom ? -1.0F : 1.0F;
+            actions->viewport_camera.zoom_delta += io.MouseWheel * zoom_direction;
+        }
+
+        const bool pan_with_modifier =
+            (viewport_control_settings.pan_modifier == PanModifier::Shift && io.KeyShift) ||
+            (viewport_control_settings.pan_modifier == PanModifier::CmdOrCtrl && isCmdOrCtrlHeld(io));
+        const bool pan_with_right_click_only =
+            viewport_control_settings.pan_modifier == PanModifier::RightClick;
+
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Right) && (pan_with_modifier || pan_with_right_click_only)) {
+            actions->viewport_camera.pan_delta.x += io.MouseDelta.x;
+            actions->viewport_camera.pan_delta.y += io.MouseDelta.y;
+        } else if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+            actions->viewport_camera.orbit_delta.x += io.MouseDelta.x;
+            const float y_direction = viewport_control_settings.invert_y_movement ? -1.0F : 1.0F;
+            actions->viewport_camera.orbit_delta.y += io.MouseDelta.y * y_direction;
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+            actions->viewport_camera.reset = true;
+        }
+    }
+
+    ImGui::End();
+}
+
+void ViewportPane::setTexture(std::uint32_t texture_id) {
+    texture_id_ = texture_id;
+}
+
+ImVec2 ViewportPane::renderSize() const {
+    return render_size_;
+}
+
+ImVec2 ViewportPane::renderTargetSize(const GraphicsQualitySettings& graphics_quality_settings) const {
+    const float scale = static_cast<float>(graphics_quality_settings.render_resolution_percent) / 100.0F;
+    return ImVec2(
+        std::max(render_size_.x * framebuffer_scale_.x * scale, 1.0F),
+        std::max(render_size_.y * framebuffer_scale_.y * scale, 1.0F)
+    );
+}
+
+int ViewportPane::drawSegmentedControl(
+    const char* id,
+    const ImVec2& top_right,
+    std::span<const SegmentedControlItem> items
+) const {
+    constexpr ImVec4 active_button = ImVec4(0.18F, 0.28F, 0.40F, 1.0F);
+    constexpr ImVec4 active_hovered = ImVec4(0.22F, 0.33F, 0.46F, 1.0F);
+    constexpr ImVec4 active_text = ImVec4(0.94F, 0.97F, 1.0F, 1.0F);
+
+    int clicked_index = -1;
+    ImGui::PushID(id);
+    for (std::size_t index = 0; index < items.size(); ++index) {
+        const SegmentedControlItem& item = items[index];
+        const ImVec2 button_position = ImVec2(
+            top_right.x - kOverlayButtonSize.x,
+            top_right.y + (static_cast<float>(index) * kOverlayButtonSize.y)
+        );
+
+        ImGui::SetCursorScreenPos(button_position);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0F);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0F);
+
+        if (item.selected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, active_button);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, active_hovered);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, active_hovered);
+            ImGui::PushStyleColor(ImGuiCol_Text, active_text);
+        }
+
+        if (ImGui::Button(item.label, kOverlayButtonSize)) {
+            clicked_index = static_cast<int>(index);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", item.tooltip);
+        }
+
+        if (item.selected) {
+            ImGui::PopStyleColor(4);
+        }
+        ImGui::PopStyleVar(2);
+    }
+    ImGui::PopID();
+    return clicked_index;
+}
+
+}  // namespace meshtools::ui

@@ -49,14 +49,22 @@ add_library(meshtools_core STATIC
     src/mesh/MeshDocument.cpp
     src/platform/GlfwWindow.cpp
     src/render/ViewportRenderer.cpp
+    src/ui/BottomPane.cpp
+    src/ui/EditorDockLayout.cpp
     src/ui/EditorUi.cpp
+    src/ui/ImGuiSystem.cpp
+    src/ui/LeftPane.cpp
     src/ui/SequentialShortcutController.cpp
+    src/ui/SettingsWindow.cpp
+    src/ui/ViewportCommands.cpp
+    src/ui/ViewportGizmo.cpp
+    src/ui/ViewportPane.cpp
 )
 
 if(APPLE)
-    target_sources(meshtools_core PRIVATE src/platform/FileDialog_mac.mm)
+    target_sources(meshtools_core PRIVATE src/platform/FileDialog_mac.mm src/platform/NativeMenu_mac.mm)
 else()
-    target_sources(meshtools_core PRIVATE src/platform/FileDialog_stub.cpp)
+    target_sources(meshtools_core PRIVATE src/platform/FileDialog_stub.cpp src/platform/NativeMenu_stub.cpp)
 endif()
 
 target_include_directories(meshtools_core

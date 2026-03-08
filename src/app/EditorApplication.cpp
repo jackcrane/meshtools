@@ -8,6 +8,7 @@
 
 #include "meshtools/io/MeshImporter.h"
 #include "meshtools/platform/FileDialog.h"
+#include "meshtools/platform/NativeMenu.h"
 
 namespace meshtools::app {
 
@@ -40,6 +41,7 @@ EditorApplication::EditorApplication(AppConfig config)
     : config_(std::move(config)),
       window_(platform::WindowConfig{.title = config_.name, .width = config_.width, .height = config_.height}),
       editor_ui_(window_.nativeHandle(), window_.glslVersion()) {
+    platform::initializeNativeMenu(config_.name);
     appendLog("APP", "Ready. Use Open to load an OBJ or STL mesh.");
     appendLog("APP", "Viewport controls: right drag orbits, shift-right drag pans, scroll zooms, R resets.");
     loadStartupSampleIfPresent();
@@ -48,6 +50,19 @@ EditorApplication::EditorApplication(AppConfig config)
 int EditorApplication::run() {
     while (!window_.shouldClose()) {
         window_.pollEvents();
+
+        const platform::NativeMenuActions menu_actions = platform::consumePendingNativeMenuActions();
+        if (menu_actions.open_settings) {
+            editor_ui_.openSettingsWindow();
+        }
+        if (menu_actions.open_mesh) {
+            openMeshDocument();
+        }
+        if (menu_actions.quit) {
+            window_.requestClose();
+            continue;
+        }
+
         applyViewportCameraInput(pending_viewport_camera_input_);
 
         const ImVec2 viewport_render_size = editor_ui_.viewportRenderTargetSize();
