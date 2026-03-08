@@ -1,7 +1,6 @@
 #include "meshtools/ui/BottomPane.h"
 
 #include "meshtools/ui/EditorDockLayout.h"
-#include "imgui_internal.h"
 
 namespace meshtools::ui {
 
@@ -16,32 +15,22 @@ void BottomPane::draw(const EditorUiState& state) {
             if (state.log_messages.empty()) {
                 ImGui::TextDisabled("No log messages.");
             } else {
-                std::string console_text;
-                for (std::size_t index = 0; index < state.log_messages.size(); ++index) {
-                    console_text += state.log_messages[index];
-                    if ((index + 1) < state.log_messages.size()) {
-                        console_text.push_back('\n');
-                    }
-                }
-                console_text.push_back('\0');
+                const bool appended_log_messages = state.log_messages.size() != last_console_log_count_;
 
                 ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
                 ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
                 ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
-                ImGui::InputTextMultiline(
-                    "##ConsoleText",
-                    console_text.data(),
-                    console_text.size(),
-                    ImVec2(-FLT_MIN, -FLT_MIN),
-                    ImGuiInputTextFlags_ReadOnly
-                );
-                ImGui::PopStyleColor(3);
+                if (ImGui::BeginChild("ConsoleOutput", ImVec2(0.0F, 0.0F), ImGuiChildFlags_FrameStyle)) {
+                    for (std::size_t index = 0; index < state.log_messages.size(); ++index) {
+                        ImGui::TextUnformatted(state.log_messages[index].c_str());
+                    }
 
-                if (state.log_messages.size() != last_console_log_count_) {
-                    if (ImGuiWindow* console_text_window = ImGui::FindWindowByID(ImGui::GetItemID()); console_text_window != nullptr) {
-                        console_text_window->Scroll.y = console_text_window->ScrollMax.y;
+                    if (appended_log_messages) {
+                        ImGui::SetScrollHereY(1.0F);
                     }
                 }
+                ImGui::EndChild();
+                ImGui::PopStyleColor(3);
             }
             last_console_log_count_ = state.log_messages.size();
             ImGui::EndTabItem();
