@@ -50,6 +50,7 @@ add_library(meshtools_core STATIC
     src/platform/GlfwWindow.cpp
     src/render/ViewportRenderer.cpp
     src/ui/EditorUi.cpp
+    src/ui/SequentialShortcutController.cpp
 )
 
 if(APPLE)

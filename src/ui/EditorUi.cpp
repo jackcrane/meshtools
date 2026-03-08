@@ -1,6 +1,5 @@
 #include "meshtools/ui/EditorUi.h"
 
-#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -21,13 +20,6 @@ constexpr const char* kViewportWindowName = "Viewport";
 constexpr const char* kLeftPaneWindowName = "Outliner";
 constexpr const char* kBottomPaneWindowName = "Console";
 constexpr float kToolbarHeight = 52.0F;
-constexpr double kShortcutMenuOpenDelaySeconds = 0.05;
-constexpr float kShortcutMenuRowHeight = 20.0F;
-constexpr float kShortcutMenuMaxVisibleRows = 8.0F;
-constexpr float kShortcutMenuWidth = 220.0F;
-constexpr float kShortcutMouseDeadzone = 10.0F;
-constexpr ImVec2 kShortcutMenuAnchorOffset = ImVec2(-50.0F, -20.0F);
-constexpr const char* kShortcutMenuWindowName = "SequentialShortcutMenu";
 
 constexpr ImVec2 kOverlayButtonSize = ImVec2(22.0F, 20.0F);
 constexpr float kOverlayGroupGap = 8.0F;
@@ -160,9 +152,9 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version) {
         throw std::runtime_error("Failed to initialize ImGui OpenGL backend.");
     }
 
-    registerSequentialShortcut(ImGuiKey_V, ImGuiKey_W, "Toggle wireframe", ShortcutAction::ToggleWireframe);
-    registerSequentialShortcut(ImGuiKey_V, ImGuiKey_S, "Toggle shade tris", ShortcutAction::ToggleShadeTriangles);
-    registerSequentialShortcut(ImGuiKey_V, ImGuiKey_R, "Reset viewport", ShortcutAction::ResetViewport);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_W, "Toggle wireframe", ShortcutCommand::ToggleWireframe);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_S, "Toggle shade tris", ShortcutCommand::ToggleShadeTriangles);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_R, "Reset viewport", ShortcutCommand::ResetViewport);
 }
 
 EditorUi::~EditorUi() {
@@ -183,7 +175,9 @@ void EditorUi::setViewportTexture(std::uint32_t texture_id) {
 
 EditorUiActions EditorUi::draw(const EditorUiState& state) {
     EditorUiActions actions;
-    handleSequentialShortcuts(&actions);
+    sequential_shortcuts_.handleInput([this, &actions](ShortcutCommand command) {
+        triggerShortcutAction(command, &actions);
+    });
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const ImVec2 toolbar_position = viewport->WorkPos;
@@ -228,7 +222,9 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
     drawBottomPane(state);
     drawViewportPane(state, &actions);
     drawSettingsWindow(&actions);
-    drawShortcutMenu(&actions);
+    sequential_shortcuts_.drawMenu([this, &actions](ShortcutCommand command) {
+        triggerShortcutAction(command, &actions);
+    });
 
     return actions;
 }
@@ -271,221 +267,15 @@ void EditorUi::buildDefaultLayout(ImGuiID dockspace_id, const ImVec2& dockspace_
     ImGui::DockBuilderFinish(dockspace_id);
 }
 
-void EditorUi::registerSequentialShortcut(
-    ImGuiKey first_key,
-    ImGuiKey second_key,
-    const char* label,
-    ShortcutAction action
-) {
-    sequential_shortcuts_.push_back(SequentialShortcutBinding{
-        .first_key = first_key,
-        .second_key = second_key,
-        .label = label,
-        .action = action,
-    });
-}
-
-void EditorUi::handleSequentialShortcuts(EditorUiActions* actions) {
-    if (actions == nullptr) {
-        return;
-    }
-
-    ImGuiIO& io = ImGui::GetIO();
-    if (isCmdOrCtrlHeld(io)) {
-        resetShortcutSequence();
-        return;
-    }
-
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        resetShortcutSequence();
-        return;
-    }
-
-    std::vector<ImGuiKey> pressed_first_keys;
-    std::vector<ImGuiKey> pressed_second_keys;
-    pressed_first_keys.reserve(sequential_shortcuts_.size());
-    pressed_second_keys.reserve(sequential_shortcuts_.size());
-
-    for (const SequentialShortcutBinding& binding : sequential_shortcuts_) {
-        if (ImGui::IsKeyPressed(binding.first_key, false) &&
-            std::find(pressed_first_keys.begin(), pressed_first_keys.end(), binding.first_key) == pressed_first_keys.end()) {
-            pressed_first_keys.push_back(binding.first_key);
-        }
-
-        if (ImGui::IsKeyPressed(binding.second_key, false) &&
-            std::find(pressed_second_keys.begin(), pressed_second_keys.end(), binding.second_key) == pressed_second_keys.end()) {
-            pressed_second_keys.push_back(binding.second_key);
-        }
-    }
-
-    const auto tryTriggerSecondKey = [&](ImGuiKey first_key) -> bool {
-        for (ImGuiKey second_key : pressed_second_keys) {
-            const auto match = std::find_if(
-                sequential_shortcuts_.begin(),
-                sequential_shortcuts_.end(),
-                [first_key, second_key](const SequentialShortcutBinding& binding) {
-                    return binding.first_key == first_key && binding.second_key == second_key;
-                }
-            );
-            if (match != sequential_shortcuts_.end()) {
-                triggerShortcutAction(match->action, actions);
-                resetShortcutSequence();
-                return true;
-            }
-        }
-
-        return false;
-    };
-
-    if (pending_shortcut_.first_key != ImGuiKey_None) {
-        if (tryTriggerSecondKey(pending_shortcut_.first_key)) {
-            return;
-        }
-
-        for (ImGuiKey first_key : pressed_first_keys) {
-            if (first_key != pending_shortcut_.first_key) {
-                beginShortcutSequence(first_key, io.MousePos);
-                return;
-            }
-        }
-
-        return;
-    }
-
-    for (ImGuiKey first_key : pressed_first_keys) {
-        beginShortcutSequence(first_key, io.MousePos);
-        if (tryTriggerSecondKey(first_key)) {
-            return;
-        }
-        return;
-    }
-}
-
-void EditorUi::drawShortcutMenu(EditorUiActions* actions) {
-    if (pending_shortcut_.first_key == ImGuiKey_None) {
-        return;
-    }
-
-    if ((ImGui::GetTime() - pending_shortcut_.started_at_seconds) < kShortcutMenuOpenDelaySeconds) {
-        return;
-    }
-
-    pending_shortcut_.menu_visible = true;
-
-    std::vector<const SequentialShortcutBinding*> matching_shortcuts;
-    matching_shortcuts.reserve(sequential_shortcuts_.size());
-    for (const SequentialShortcutBinding& binding : sequential_shortcuts_) {
-        if (binding.first_key == pending_shortcut_.first_key) {
-            matching_shortcuts.push_back(&binding);
-        }
-    }
-
-    if (matching_shortcuts.empty()) {
-        resetShortcutSequence();
-        return;
-    }
-
-    ImGui::SetNextWindowPos(pending_shortcut_.menu_anchor, ImGuiCond_Always);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(kShortcutMenuWidth, 0.0F), ImVec2(kShortcutMenuWidth, FLT_MAX));
-    ImGui::SetNextWindowBgAlpha(0.96F);
-
-    constexpr ImGuiWindowFlags menu_flags =
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_AlwaysAutoResize |
-        ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoNav;
-
-    bool should_close = false;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0F, 4.0F));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0F);
-    if (ImGui::Begin(kShortcutMenuWindowName, nullptr, menu_flags)) {
-        const float child_height = std::min(
-            static_cast<float>(matching_shortcuts.size()) * kShortcutMenuRowHeight,
-            kShortcutMenuMaxVisibleRows * kShortcutMenuRowHeight
-        );
-
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0F, 2.0F));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0F, 0.0F));
-        ImGui::BeginChild("ShortcutOptions", ImVec2(0.0F, child_height), ImGuiChildFlags_None);
-        for (std::size_t index = 0; index < matching_shortcuts.size(); ++index) {
-            const SequentialShortcutBinding& binding = *matching_shortcuts[index];
-            const char* shortcut_label = ImGui::GetKeyName(binding.second_key);
-
-            ImGui::PushID(static_cast<int>(index));
-            if (ImGui::MenuItem(binding.label, shortcut_label)) {
-                triggerShortcutAction(binding.action, actions);
-                should_close = true;
-            }
-            ImGui::PopID();
-        }
-        ImGui::EndChild();
-        ImGui::PopStyleVar(2);
-
-        const bool menu_hovered = ImGui::IsWindowHovered(
-            ImGuiHoveredFlags_AllowWhenBlockedByActiveItem | ImGuiHoveredFlags_ChildWindows
-        );
-        const ImVec2 menu_position = ImGui::GetWindowPos();
-        const ImVec2 menu_size = ImGui::GetWindowSize();
-        if (menu_hovered) {
-            pending_shortcut_.menu_hovered_once = true;
-        }
-        ImGui::End();
-        ImGui::PopStyleVar(2);
-
-        if (should_close) {
-            resetShortcutSequence();
-            return;
-        }
-
-        const ImVec2 mouse_position = ImGui::GetIO().MousePos;
-        const bool mouse_outside_deadzone =
-            mouse_position.x < (menu_position.x - kShortcutMouseDeadzone) ||
-            mouse_position.x > (menu_position.x + menu_size.x + kShortcutMouseDeadzone) ||
-            mouse_position.y < (menu_position.y - kShortcutMouseDeadzone) ||
-            mouse_position.y > (menu_position.y + menu_size.y + kShortcutMouseDeadzone);
-        const bool mouse_clicked_outside =
-            ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
-        if (!menu_hovered && pending_shortcut_.menu_visible &&
-            (mouse_outside_deadzone || mouse_clicked_outside)) {
-            resetShortcutSequence();
-        }
-
-        return;
-    }
-
-    ImGui::End();
-    ImGui::PopStyleVar(2);
-}
-
-void EditorUi::beginShortcutSequence(ImGuiKey first_key, const ImVec2& menu_anchor) {
-    pending_shortcut_ = PendingShortcutState{
-        .first_key = first_key,
-        .menu_anchor = ImVec2(
-            menu_anchor.x + kShortcutMenuAnchorOffset.x,
-            menu_anchor.y + kShortcutMenuAnchorOffset.y
-        ),
-        .started_at_seconds = ImGui::GetTime(),
-        .menu_visible = false,
-        .menu_hovered_once = false,
-    };
-}
-
-void EditorUi::resetShortcutSequence() {
-    pending_shortcut_ = PendingShortcutState{};
-}
-
-void EditorUi::triggerShortcutAction(ShortcutAction action, EditorUiActions* actions) {
+void EditorUi::triggerShortcutAction(ShortcutCommand action, EditorUiActions* actions) {
     switch (action) {
-        case ShortcutAction::ToggleWireframe:
+        case ShortcutCommand::ToggleWireframe:
             toggleWireframe(actions);
             return;
-        case ShortcutAction::ToggleShadeTriangles:
+        case ShortcutCommand::ToggleShadeTriangles:
             toggleShadeTriangles(actions);
             return;
-        case ShortcutAction::ResetViewport:
+        case ShortcutCommand::ResetViewport:
             resetViewport(actions);
             return;
     }

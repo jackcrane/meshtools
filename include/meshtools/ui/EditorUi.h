@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "meshtools/mesh/MeshDocument.h"
+#include "meshtools/ui/SequentialShortcutController.h"
 #include "imgui.h"
 
 struct GLFWwindow;
@@ -95,45 +96,14 @@ class EditorUi {
     [[nodiscard]] ImVec2 viewportRenderTargetSize() const;
 
   private:
-    enum class ShortcutAction {
-        ToggleWireframe,
-        ToggleShadeTriangles,
-        ResetViewport,
-    };
-
     struct SegmentedControlItem {
         const char* label = "";
         const char* tooltip = "";
         bool selected = false;
     };
 
-    struct SequentialShortcutBinding {
-        ImGuiKey first_key = ImGuiKey_None;
-        ImGuiKey second_key = ImGuiKey_None;
-        const char* label = "";
-        ShortcutAction action = ShortcutAction::ToggleWireframe;
-    };
-
-    struct PendingShortcutState {
-        ImGuiKey first_key = ImGuiKey_None;
-        ImVec2 menu_anchor = ImVec2(0.0F, 0.0F);
-        double started_at_seconds = 0.0;
-        bool menu_visible = false;
-        bool menu_hovered_once = false;
-    };
-
     void buildDefaultLayout(ImGuiID dockspace_id, const ImVec2& dockspace_size);
-    void registerSequentialShortcut(
-        ImGuiKey first_key,
-        ImGuiKey second_key,
-        const char* label,
-        ShortcutAction action
-    );
-    void handleSequentialShortcuts(EditorUiActions* actions);
-    void drawShortcutMenu(EditorUiActions* actions);
-    void beginShortcutSequence(ImGuiKey first_key, const ImVec2& menu_anchor);
-    void resetShortcutSequence();
-    void triggerShortcutAction(ShortcutAction action, EditorUiActions* actions);
+    void triggerShortcutAction(ShortcutCommand action, EditorUiActions* actions);
     void toggleWireframe(EditorUiActions* actions);
     void toggleShadeTriangles(EditorUiActions* actions);
     void resetViewport(EditorUiActions* actions);
@@ -162,8 +132,7 @@ class EditorUi {
     FileImportSettings file_import_settings_{};
     ViewportDisplaySettings viewport_display_settings_{};
     std::size_t last_console_log_count_ = 0;
-    std::vector<SequentialShortcutBinding> sequential_shortcuts_;
-    PendingShortcutState pending_shortcut_{};
+    SequentialShortcutController sequential_shortcuts_;
 };
 
 }  // namespace meshtools::ui
