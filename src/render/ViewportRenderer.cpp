@@ -74,6 +74,31 @@ void main() {
 }
 )";
 
+constexpr const char* kAxisVertexShaderSource = R"(
+#version 150 core
+
+in vec3 a_position;
+in vec3 a_color;
+uniform mat4 u_mvp;
+out vec3 v_color;
+
+void main() {
+    v_color = a_color;
+    gl_Position = u_mvp * vec4(a_position, 1.0);
+}
+)";
+
+constexpr const char* kAxisFragmentShaderSource = R"(
+#version 150 core
+
+in vec3 v_color;
+out vec4 out_color;
+
+void main() {
+    out_color = vec4(v_color, 1.0);
+}
+)";
+
 mesh::Vec3 add(const mesh::Vec3& left, const mesh::Vec3& right) {
     return mesh::Vec3{
         .x = left.x + right.x,
@@ -170,6 +195,36 @@ std::uint32_t createShaderProgram() {
     throw std::runtime_error("Failed to link viewport shader program: " + log);
 }
 
+std::uint32_t createAxisShaderProgram() {
+    const std::uint32_t vertex_shader = compileShader(GL_VERTEX_SHADER, kAxisVertexShaderSource);
+    const std::uint32_t fragment_shader = compileShader(GL_FRAGMENT_SHADER, kAxisFragmentShaderSource);
+
+    const std::uint32_t program = glCreateProgram();
+    glAttachShader(program, vertex_shader);
+    glAttachShader(program, fragment_shader);
+    glBindAttribLocation(program, 0, "a_position");
+    glBindAttribLocation(program, 1, "a_color");
+    glLinkProgram(program);
+
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);
+
+    int linked = 0;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    if (linked == GL_TRUE) {
+        return program;
+    }
+
+    int log_length = 0;
+    glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_length);
+    std::string log(static_cast<std::size_t>(std::max(log_length, 0)), '\0');
+    if (!log.empty()) {
+        glGetProgramInfoLog(program, log_length, nullptr, log.data());
+    }
+    glDeleteProgram(program);
+    throw std::runtime_error("Failed to link axis shader program: " + log);
+}
+
 std::array<float, 16> multiply(const std::array<float, 16>& left, const std::array<float, 16>& right) {
     std::array<float, 16> result{};
     for (int column = 0; column < 4; ++column) {
@@ -248,6 +303,12 @@ std::array<float, 16> makeLookAt(
 ViewportRenderer::ViewportRenderer() = default;
 
 ViewportRenderer::~ViewportRenderer() {
+    if (axis_vertex_buffer_ != 0) {
+        glDeleteBuffers(1, &axis_vertex_buffer_);
+    }
+    if (axis_vertex_array_ != 0) {
+        glDeleteVertexArrays(1, &axis_vertex_array_);
+    }
     if (index_buffer_ != 0) {
         glDeleteBuffers(1, &index_buffer_);
     }
@@ -260,6 +321,9 @@ ViewportRenderer::~ViewportRenderer() {
     if (shader_program_ != 0) {
         glDeleteProgram(shader_program_);
     }
+    if (axis_shader_program_ != 0) {
+        glDeleteProgram(axis_shader_program_);
+    }
     if (depth_renderbuffer_ != 0) {
         glDeleteRenderbuffers(1, &depth_renderbuffer_);
     }
@@ -271,12 +335,13 @@ ViewportRenderer::~ViewportRenderer() {
     }
 }
 
-void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int height) {
+void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int height, const DisplaySettings& display_settings) {
     const int safe_width = std::max(width, 1);
     const int safe_height = std::max(height, 1);
 
     ensureFramebuffer(safe_width, safe_height);
     ensureShaderProgram();
+    ensureAxisResources();
     syncMesh(document);
 
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
@@ -314,19 +379,31 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
 
     glBindVertexArray(vertex_array_);
 
-    glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(1.0F, 1.0F);
-    glUniform1i(render_mode_location, 0);
-    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
+    if (display_settings.shade_triangles) {
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0F, 1.0F);
+        glUniform1i(render_mode_location, 0);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+    }
 
-    glDisable(GL_POLYGON_OFFSET_FILL);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    glUniform1i(render_mode_location, 1);
-    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    glDisable(GL_BLEND);
+    if (display_settings.show_wireframe) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glUniform1i(render_mode_location, 1);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glDisable(GL_BLEND);
+    }
+
+    glUseProgram(axis_shader_program_);
+    const int axis_mvp_location = glGetUniformLocation(axis_shader_program_, "u_mvp");
+    glUniformMatrix4fv(axis_mvp_location, 1, GL_FALSE, mvp.data());
+    glBindVertexArray(axis_vertex_array_);
+    glLineWidth(2.0F);
+    glDrawArrays(GL_LINES, 0, 6);
+    glBindVertexArray(0);
 
     glBindVertexArray(0);
     glUseProgram(0);
@@ -430,6 +507,41 @@ void ViewportRenderer::ensureShaderProgram() {
     glGenVertexArrays(1, &vertex_array_);
     glGenBuffers(1, &vertex_buffer_);
     glGenBuffers(1, &index_buffer_);
+}
+
+void ViewportRenderer::ensureAxisResources() {
+    if (axis_shader_program_ != 0) {
+        return;
+    }
+
+    axis_shader_program_ = createAxisShaderProgram();
+    glGenVertexArrays(1, &axis_vertex_array_);
+    glGenBuffers(1, &axis_vertex_buffer_);
+
+    const std::array<AxisVertex, 6> axis_vertices = {
+        AxisVertex{{0.0F, 0.0F, 0.0F}, {0.95F, 0.25F, 0.25F}},
+        AxisVertex{{1.25F, 0.0F, 0.0F}, {0.95F, 0.25F, 0.25F}},
+        AxisVertex{{0.0F, 0.0F, 0.0F}, {0.28F, 0.86F, 0.45F}},
+        AxisVertex{{0.0F, 1.25F, 0.0F}, {0.28F, 0.86F, 0.45F}},
+        AxisVertex{{0.0F, 0.0F, 0.0F}, {0.30F, 0.56F, 0.96F}},
+        AxisVertex{{0.0F, 0.0F, 1.25F}, {0.30F, 0.56F, 0.96F}},
+    };
+
+    glBindVertexArray(axis_vertex_array_);
+    glBindBuffer(GL_ARRAY_BUFFER, axis_vertex_buffer_);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(axis_vertices.size() * sizeof(AxisVertex)),
+        axis_vertices.data(),
+        GL_STATIC_DRAW
+    );
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(AxisVertex), reinterpret_cast<const void*>(offsetof(AxisVertex, position)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(AxisVertex), reinterpret_cast<const void*>(offsetof(AxisVertex, color)));
+
+    glBindVertexArray(0);
 }
 
 void ViewportRenderer::ensurePlaceholderMesh() {

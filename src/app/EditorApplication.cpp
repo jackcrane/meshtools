@@ -13,6 +13,7 @@ EditorApplication::EditorApplication(AppConfig config)
       editor_ui_(window_.nativeHandle(), window_.glslVersion()) {
     appendLog("Ready. Use Open to load an OBJ or STL mesh.");
     appendLog("Viewport controls: right drag orbits, shift-right drag pans, scroll zooms, R resets.");
+    loadStartupSampleIfPresent();
 }
 
 int EditorApplication::run() {
@@ -24,7 +25,11 @@ int EditorApplication::run() {
         viewport_renderer_.render(
             active_document_ ? &active_document_.value() : nullptr,
             static_cast<int>(viewport_render_size.x),
-            static_cast<int>(viewport_render_size.y)
+            static_cast<int>(viewport_render_size.y),
+            render::ViewportRenderer::DisplaySettings{
+                .show_wireframe = editor_ui_.viewportDisplaySettings().show_wireframe,
+                .shade_triangles = editor_ui_.viewportDisplaySettings().shade_triangles,
+            }
         );
         editor_ui_.setViewportTexture(viewport_renderer_.textureId());
 
@@ -35,6 +40,8 @@ int EditorApplication::run() {
         const ui::EditorUiState ui_state{
             .active_document = active_document_ ? &active_document_.value() : nullptr,
             .log_messages = log_messages_,
+            .camera_yaw = viewport_renderer_.camera().yaw,
+            .camera_pitch = viewport_renderer_.camera().pitch,
         };
         const ui::EditorUiActions actions = editor_ui_.draw(ui_state);
         editor_ui_.endFrame(window_.nativeHandle());
@@ -71,7 +78,11 @@ void EditorApplication::openMeshDocument() {
         return;
     }
 
-    io::MeshImportResult result = io::importMeshFromFile(*selected_path);
+    loadMeshDocument(*selected_path);
+}
+
+void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
+    io::MeshImportResult result = io::importMeshFromFile(path);
     if (!result.succeeded()) {
         appendLog("Failed to load mesh: " + result.error_message);
         return;
@@ -84,6 +95,16 @@ void EditorApplication::openMeshDocument() {
         std::to_string(active_document_->positions.size()) + " vertices, " +
         std::to_string(active_document_->triangles.size()) + " triangles)."
     );
+}
+
+void EditorApplication::loadStartupSampleIfPresent() {
+    const std::filesystem::path sample_path = std::filesystem::path("samples") / "Stanford_Bunny_sample.stl";
+    if (!std::filesystem::exists(sample_path)) {
+        appendLog("Startup sample not found: " + sample_path.string());
+        return;
+    }
+
+    loadMeshDocument(sample_path);
 }
 
 void EditorApplication::applyViewportCameraInput(const ui::ViewportCameraInput& input) {

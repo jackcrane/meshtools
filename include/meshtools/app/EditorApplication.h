@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -26,6 +27,8 @@ class EditorApplication {
   private:
     void appendLog(std::string message);
     void openMeshDocument();
+    void loadMeshDocument(const std::filesystem::path& path);
+    void loadStartupSampleIfPresent();
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
 
     AppConfig config_;

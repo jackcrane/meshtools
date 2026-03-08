@@ -10,6 +10,11 @@ namespace meshtools::render {
 
 class ViewportRenderer {
   public:
+    struct DisplaySettings {
+        bool show_wireframe = true;
+        bool shade_triangles = true;
+    };
+
     struct CameraState {
         float yaw = 0.65F;
         float pitch = 0.45F;
@@ -25,7 +30,7 @@ class ViewportRenderer {
     ViewportRenderer(const ViewportRenderer&) = delete;
     ViewportRenderer& operator=(const ViewportRenderer&) = delete;
 
-    void render(const mesh::MeshDocument* document, int width, int height);
+    void render(const mesh::MeshDocument* document, int width, int height, const DisplaySettings& display_settings);
     void orbit(float delta_x, float delta_y);
     void pan(float delta_x, float delta_y);
     void zoom(float delta);
@@ -50,8 +55,14 @@ class ViewportRenderer {
         float normal[3];
     };
 
+    struct AxisVertex {
+        float position[3];
+        float color[3];
+    };
+
     void ensureFramebuffer(int width, int height);
     void ensureShaderProgram();
+    void ensureAxisResources();
     void ensurePlaceholderMesh();
     void syncMesh(const mesh::MeshDocument* document);
     void uploadGeometry(const std::vector<Vertex>& vertices, const std::vector<std::uint32_t>& indices);
@@ -60,9 +71,12 @@ class ViewportRenderer {
     std::uint32_t color_texture_ = 0;
     std::uint32_t depth_renderbuffer_ = 0;
     std::uint32_t shader_program_ = 0;
+    std::uint32_t axis_shader_program_ = 0;
     std::uint32_t vertex_array_ = 0;
     std::uint32_t vertex_buffer_ = 0;
     std::uint32_t index_buffer_ = 0;
+    std::uint32_t axis_vertex_array_ = 0;
+    std::uint32_t axis_vertex_buffer_ = 0;
     std::uint32_t index_count_ = 0;
     int framebuffer_width_ = 0;
     int framebuffer_height_ = 0;

@@ -1,7 +1,9 @@
 #include "meshtools/ui/EditorUi.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <filesystem>
 #include <stdexcept>
 
 #include <GLFW/glfw3.h>
@@ -20,12 +22,65 @@ constexpr const char* kLeftPaneWindowName = "Outliner";
 constexpr const char* kBottomPaneWindowName = "Console";
 constexpr float kToolbarHeight = 52.0F;
 
+constexpr ImVec2 kOverlayButtonSize = ImVec2(22.0F, 20.0F);
+constexpr float kOverlayGroupGap = 8.0F;
+constexpr float kOverlayPadding = 10.0F;
+
 bool isCmdOrCtrlHeld(const ImGuiIO& io) {
 #if defined(__APPLE__)
     return io.KeySuper;
 #else
     return io.KeyCtrl;
 #endif
+}
+
+struct OverlayVec3 {
+    float x;
+    float y;
+    float z;
+};
+
+OverlayVec3 rotateByCameraInverse(const OverlayVec3& vector, float yaw, float pitch) {
+    const float cos_yaw = std::cos(-yaw);
+    const float sin_yaw = std::sin(-yaw);
+    const float cos_pitch = std::cos(pitch);
+    const float sin_pitch = std::sin(pitch);
+
+    const OverlayVec3 yaw_rotated{
+        .x = (vector.x * cos_yaw) + (vector.z * sin_yaw),
+        .y = vector.y,
+        .z = (-vector.x * sin_yaw) + (vector.z * cos_yaw),
+    };
+
+    return OverlayVec3{
+        .x = yaw_rotated.x,
+        .y = (yaw_rotated.y * cos_pitch) - (yaw_rotated.z * sin_pitch),
+        .z = (yaw_rotated.y * sin_pitch) + (yaw_rotated.z * cos_pitch),
+    };
+}
+
+void mergeSymbolFont(ImGuiIO& io) {
+    const std::array<const char*, 2> candidate_paths = {
+        "/System/Library/Fonts/Apple Symbols.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    };
+    constexpr ImWchar glyph_ranges[] = {
+        0x2503, 0x2503,  // ┃
+        0x2588, 0x2588,  // █
+        0x25C6, 0x25C7,  // ◆ ◇
+        0x2737, 0x2737,  // ✷
+        0,
+    };
+
+    ImFontConfig config;
+    config.MergeMode = true;
+    config.PixelSnapH = true;
+
+    for (const char* path : candidate_paths) {
+        if (std::filesystem::exists(path) && io.Fonts->AddFontFromFileTTF(path, 15.0F, &config, glyph_ranges) != nullptr) {
+            return;
+        }
+    }
 }
 
 }  // namespace
@@ -40,6 +95,8 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    io.Fonts->AddFontDefault();
+    mergeSymbolFont(io);
 
     ImGui::StyleColorsDark();
 
@@ -120,7 +177,7 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
 
     drawLeftPane(state);
     drawBottomPane(state);
-    drawViewportPane(&actions);
+    drawViewportPane(state, &actions);
 
     if (show_demo_window_) {
         ImGui::ShowDemoWindow(&show_demo_window_);
@@ -297,7 +354,52 @@ void EditorUi::drawBottomPane(const EditorUiState& state) {
     ImGui::End();
 }
 
-void EditorUi::drawViewportPane(EditorUiActions* actions) {
+int EditorUi::drawSegmentedControl(
+    const char* id,
+    const ImVec2& top_right,
+    std::span<const SegmentedControlItem> items
+) const {
+    constexpr ImVec4 active_button = ImVec4(0.18F, 0.28F, 0.40F, 1.0F);
+    constexpr ImVec4 active_hovered = ImVec4(0.22F, 0.33F, 0.46F, 1.0F);
+    constexpr ImVec4 active_text = ImVec4(0.94F, 0.97F, 1.0F, 1.0F);
+
+    int clicked_index = -1;
+    ImGui::PushID(id);
+    for (std::size_t index = 0; index < items.size(); ++index) {
+        const SegmentedControlItem& item = items[index];
+        const ImVec2 button_position = ImVec2(
+            top_right.x - kOverlayButtonSize.x,
+            top_right.y + (static_cast<float>(index) * kOverlayButtonSize.y)
+        );
+
+        ImGui::SetCursorScreenPos(button_position);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0F);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0F);
+
+        if (item.selected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, active_button);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, active_hovered);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, active_hovered);
+            ImGui::PushStyleColor(ImGuiCol_Text, active_text);
+        }
+
+        if (ImGui::Button(item.label, kOverlayButtonSize)) {
+            clicked_index = static_cast<int>(index);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", item.tooltip);
+        }
+
+        if (item.selected) {
+            ImGui::PopStyleColor(4);
+        }
+        ImGui::PopStyleVar(2);
+    }
+    ImGui::PopID();
+    return clicked_index;
+}
+
+void EditorUi::drawViewportPane(const EditorUiState& state, EditorUiActions* actions) {
     constexpr ImGuiWindowFlags pane_flags =
         ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoMove;
@@ -330,8 +432,89 @@ void EditorUi::drawViewportPane(EditorUiActions* actions) {
             ImVec2(1.0F, 0.0F)
         );
     }
+    const bool viewport_image_hovered = ImGui::IsItemHovered();
 
-    if (actions != nullptr && ImGui::IsItemHovered()) {
+    const ImVec2 viewport_rect_min = ImGui::GetItemRectMin();
+    const ImVec2 viewport_rect_max = ImGui::GetItemRectMax();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    const ImVec2 controls_top_right = ImVec2(
+        viewport_rect_max.x - kOverlayPadding,
+        viewport_rect_min.y + kOverlayPadding
+    );
+
+    const std::array<SegmentedControlItem, 2> display_items = {{
+        SegmentedControlItem{.label = "\xE2\x97\x87", .tooltip = "Show wireframe", .selected = viewport_display_settings_.show_wireframe},
+        SegmentedControlItem{.label = "\xE2\x97\x86", .tooltip = "Shade tris", .selected = viewport_display_settings_.shade_triangles},
+    }};
+    const int clicked_display_item = drawSegmentedControl("viewport_display", controls_top_right, display_items);
+    if (clicked_display_item == 0) {
+        viewport_display_settings_.show_wireframe = !viewport_display_settings_.show_wireframe;
+    } else if (clicked_display_item == 1) {
+        viewport_display_settings_.shade_triangles = !viewport_display_settings_.shade_triangles;
+    }
+
+    const ImVec2 filter_top_right = ImVec2(
+        controls_top_right.x,
+        controls_top_right.y + (static_cast<float>(display_items.size()) * kOverlayButtonSize.y) + kOverlayGroupGap
+    );
+    const std::array<SegmentedControlItem, 4> filter_items = {{
+        SegmentedControlItem{.label = "\xE2\x94\x83", .tooltip = "Edges", .selected = selection_filter_ == SelectionFilter::Edges},
+        SegmentedControlItem{.label = "\xE2\x96\x88", .tooltip = "Faces", .selected = selection_filter_ == SelectionFilter::Faces},
+        SegmentedControlItem{.label = "\xE2\x9C\xB7", .tooltip = "Points", .selected = selection_filter_ == SelectionFilter::Points},
+        SegmentedControlItem{.label = "\xE2\x97\x86", .tooltip = "Advanced", .selected = selection_filter_ == SelectionFilter::Advanced},
+    }};
+    const int clicked_filter_item = drawSegmentedControl("viewport_filter", filter_top_right, filter_items);
+    if (clicked_filter_item == 0) {
+        selection_filter_ = SelectionFilter::Edges;
+    } else if (clicked_filter_item == 1) {
+        selection_filter_ = SelectionFilter::Faces;
+    } else if (clicked_filter_item == 2) {
+        selection_filter_ = SelectionFilter::Points;
+    } else if (clicked_filter_item == 3) {
+        selection_filter_ = SelectionFilter::Advanced;
+    }
+
+    const ImVec2 gizmo_center = ImVec2(viewport_rect_min.x + 32.0F, viewport_rect_max.y - 32.0F);
+    constexpr float gizmo_radius = 28.0F;
+
+    struct GizmoAxis {
+        OverlayVec3 vector;
+        ImU32 color;
+        const char* label;
+    };
+
+    const GizmoAxis axes[] = {
+        GizmoAxis{.vector = OverlayVec3{1.0F, 0.0F, 0.0F}, .color = IM_COL32(231, 76, 60, 255), .label = "X"},
+        GizmoAxis{.vector = OverlayVec3{0.0F, 1.0F, 0.0F}, .color = IM_COL32(46, 204, 113, 255), .label = "Y"},
+        GizmoAxis{.vector = OverlayVec3{0.0F, 0.0F, 1.0F}, .color = IM_COL32(52, 152, 219, 255), .label = "Z"},
+    };
+
+    std::array<std::pair<float, GizmoAxis>, 3> sorted_axes{};
+    for (std::size_t index = 0; index < sorted_axes.size(); ++index) {
+        const OverlayVec3 rotated = rotateByCameraInverse(axes[index].vector, state.camera_yaw, state.camera_pitch);
+        sorted_axes[index] = std::make_pair(rotated.z, GizmoAxis{
+            .vector = rotated,
+            .color = axes[index].color,
+            .label = axes[index].label,
+        });
+    }
+    std::sort(sorted_axes.begin(), sorted_axes.end(), [](const auto& left, const auto& right) {
+        return left.first < right.first;
+    });
+
+    for (const auto& [depth, axis] : sorted_axes) {
+        (void)depth;
+        const ImVec2 endpoint = ImVec2(
+            gizmo_center.x + (axis.vector.x * gizmo_radius),
+            gizmo_center.y - (axis.vector.y * gizmo_radius)
+        );
+        draw_list->AddLine(gizmo_center, endpoint, axis.color, 1.25F);
+        draw_list->AddCircleFilled(endpoint, 2.75F, axis.color, 12);
+        draw_list->AddText(ImVec2(endpoint.x + 5.0F, endpoint.y - 6.0F), axis.color, axis.label);
+    }
+
+    if (actions != nullptr && viewport_image_hovered) {
         ImGuiIO& io = ImGui::GetIO();
         if (io.MouseWheel != 0.0F) {
             const float zoom_direction = viewport_control_settings_.invert_zoom ? -1.0F : 1.0F;
@@ -430,6 +613,10 @@ void EditorUi::endFrame(GLFWwindow* window) const {
 
 const ImVec4& EditorUi::clearColor() const {
     return clear_color_;
+}
+
+const ViewportDisplaySettings& EditorUi::viewportDisplaySettings() const {
+    return viewport_display_settings_;
 }
 
 ImVec2 EditorUi::viewportRenderSize() const {
