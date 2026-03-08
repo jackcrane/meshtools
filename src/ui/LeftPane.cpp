@@ -30,6 +30,7 @@ void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) const 
 
         int selected_up_axis = document.up_axis == UpAxis::Y ? 0 : 1;
         constexpr const char* up_axis_options[] = {"Y", "Z"};
+        ImGui::SetNextItemWidth(88.0F);
         if (ImGui::Combo("Project up axis", &selected_up_axis, up_axis_options, IM_ARRAYSIZE(up_axis_options))) {
             document.up_axis = selected_up_axis == 0 ? UpAxis::Y : UpAxis::Z;
             if (actions != nullptr) {

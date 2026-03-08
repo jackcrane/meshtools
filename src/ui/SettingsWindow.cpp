@@ -72,6 +72,9 @@ void SettingsWindow::draw(
             }
         }
 
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Viewport config");
+        ImGui::Separator();
         int selected_up_axis = default_file_import_settings.up_axis == UpAxis::Y ? 0 : 1;
         constexpr const char* up_axis_options[] = {"Y", "Z"};
         if (ImGui::Combo("Default up axis", &selected_up_axis, up_axis_options, IM_ARRAYSIZE(up_axis_options))) {
