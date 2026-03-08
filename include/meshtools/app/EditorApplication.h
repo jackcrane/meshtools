@@ -25,7 +25,7 @@ class EditorApplication {
     int run();
 
   private:
-    void appendLog(std::string message);
+    void appendLog(std::string origin, std::string message);
     void openMeshDocument();
     void loadMeshDocument(const std::filesystem::path& path);
     void loadStartupSampleIfPresent();

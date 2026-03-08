@@ -1,5 +1,9 @@
 #include "meshtools/app/EditorApplication.h"
 
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 #include <utility>
 
 #include "meshtools/io/MeshImporter.h"
@@ -7,12 +11,37 @@
 
 namespace meshtools::app {
 
+namespace {
+
+std::string makeTimestamp() {
+    const auto now = std::chrono::system_clock::now();
+    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+    const std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+
+    std::tm local_time{};
+#if defined(_WIN32)
+    localtime_s(&local_time, &now_time);
+#else
+    localtime_r(&now_time, &local_time);
+#endif
+
+    std::ostringstream stream;
+    stream << std::put_time(&local_time, "%H:%M:%S")
+           << '.'
+           << std::setw(3)
+           << std::setfill('0')
+           << milliseconds.count();
+    return stream.str();
+}
+
+}  // namespace
+
 EditorApplication::EditorApplication(AppConfig config)
     : config_(std::move(config)),
       window_(platform::WindowConfig{.title = config_.name, .width = config_.width, .height = config_.height}),
       editor_ui_(window_.nativeHandle(), window_.glslVersion()) {
-    appendLog("Ready. Use Open to load an OBJ or STL mesh.");
-    appendLog("Viewport controls: right drag orbits, shift-right drag pans, scroll zooms, R resets.");
+    appendLog("APP", "Ready. Use Open to load an OBJ or STL mesh.");
+    appendLog("APP", "Viewport controls: right drag orbits, shift-right drag pans, scroll zooms, R resets.");
     loadStartupSampleIfPresent();
 }
 
@@ -51,6 +80,9 @@ int EditorApplication::run() {
         window_.swapBuffers();
 
         pending_viewport_camera_input_ = actions.viewport_camera;
+        for (const ui::EditorUiLogEvent& event_log : actions.event_logs) {
+            appendLog(event_log.origin, event_log.message);
+        }
 
         if (actions.request_open_mesh) {
             openMeshDocument();
@@ -64,8 +96,8 @@ int EditorApplication::run() {
     return 0;
 }
 
-void EditorApplication::appendLog(std::string message) {
-    log_messages_.push_back(std::move(message));
+void EditorApplication::appendLog(std::string origin, std::string message) {
+    log_messages_.push_back('[' + makeTimestamp() + "][" + std::move(origin) + "] " + std::move(message));
     constexpr std::size_t max_log_messages = 200;
     if (log_messages_.size() > max_log_messages) {
         const auto overflow =
@@ -77,7 +109,7 @@ void EditorApplication::appendLog(std::string message) {
 void EditorApplication::openMeshDocument() {
     const std::optional<std::filesystem::path> selected_path = platform::openMeshFileDialog();
     if (!selected_path.has_value()) {
-        appendLog("Open canceled.");
+        appendLog("IMPORT", "Open canceled.");
         return;
     }
 
@@ -87,12 +119,13 @@ void EditorApplication::openMeshDocument() {
 void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     io::MeshImportResult result = io::importMeshFromFile(path);
     if (!result.succeeded()) {
-        appendLog("Failed to load mesh: " + result.error_message);
+        appendLog("IMPORT", "Failed to load mesh: " + result.error_message);
         return;
     }
 
     active_document_ = std::move(result.document);
     appendLog(
+        "IMPORT",
         "Loaded " + active_document_->displayName() +
         " (" + active_document_->formatLabel() + ", " +
         std::to_string(active_document_->positions.size()) + " vertices, " +
@@ -103,7 +136,7 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
 void EditorApplication::loadStartupSampleIfPresent() {
     const std::filesystem::path sample_path = std::filesystem::path("samples") / "Stanford_Bunny_sample.stl";
     if (!std::filesystem::exists(sample_path)) {
-        appendLog("Startup sample not found: " + sample_path.string());
+        appendLog("APP", "Startup sample not found: " + sample_path.string());
         return;
     }
 

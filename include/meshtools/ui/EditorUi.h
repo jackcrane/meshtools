@@ -1,7 +1,9 @@
 #pragma once
 
 #include <span>
+#include <cstddef>
 #include <string>
+#include <vector>
 
 #include "meshtools/mesh/MeshDocument.h"
 #include "imgui.h"
@@ -61,10 +63,16 @@ struct ViewportCameraInput {
     bool reset = false;
 };
 
+struct EditorUiLogEvent {
+    std::string origin;
+    std::string message;
+};
+
 struct EditorUiActions {
     bool request_exit = false;
     bool request_open_mesh = false;
     ViewportCameraInput viewport_camera;
+    std::vector<EditorUiLogEvent> event_logs;
 };
 
 class EditorUi {
@@ -95,10 +103,10 @@ class EditorUi {
 
     void buildDefaultLayout(ImGuiID dockspace_id, const ImVec2& dockspace_size);
     void drawToolbar(EditorUiActions* actions);
-    void drawLeftPane(const EditorUiState& state);
+    void drawLeftPane(const EditorUiState& state, EditorUiActions* actions);
     void drawBottomPane(const EditorUiState& state);
     void drawViewportPane(const EditorUiState& state, EditorUiActions* actions);
-    void drawSettingsWindow();
+    void drawSettingsWindow(EditorUiActions* actions);
     [[nodiscard]] int drawSegmentedControl(
         const char* id,
         const ImVec2& top_right,
@@ -107,7 +115,6 @@ class EditorUi {
 
     bool layout_initialized_ = false;
     bool settings_window_open_ = false;
-    bool show_demo_window_ = true;
     int selected_settings_section_ = 0;
     GLFWwindow* window_ = nullptr;
     SelectionFilter selection_filter_ = SelectionFilter::Faces;
@@ -119,6 +126,7 @@ class EditorUi {
     GraphicsQualitySettings graphics_quality_settings_{};
     FileImportSettings file_import_settings_{};
     ViewportDisplaySettings viewport_display_settings_{};
+    std::size_t last_console_log_count_ = 0;
 };
 
 }  // namespace meshtools::ui

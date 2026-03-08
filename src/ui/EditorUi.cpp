@@ -85,6 +85,30 @@ void mergeSymbolFont(ImGuiIO& io) {
 
 }  // namespace
 
+const char* panModifierName(PanModifier modifier) {
+    switch (modifier) {
+        case PanModifier::CmdOrCtrl:
+            return "Cmd/Ctrl";
+        case PanModifier::Shift:
+            return "Shift";
+        case PanModifier::RightClick:
+            return "Right-click";
+    }
+
+    return "Unknown";
+}
+
+const char* upAxisName(UpAxis axis) {
+    switch (axis) {
+        case UpAxis::Y:
+            return "Y";
+        case UpAxis::Z:
+            return "Z";
+    }
+
+    return "Unknown";
+}
+
 EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version) {
     window_ = window;
 
@@ -175,15 +199,10 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
     ImGui::DockSpace(dockspace_id, ImVec2(0.0F, 0.0F), docknode_flags);
     ImGui::End();
 
-    drawLeftPane(state);
+    drawLeftPane(state, &actions);
     drawBottomPane(state);
     drawViewportPane(state, &actions);
-
-    if (show_demo_window_) {
-        ImGui::ShowDemoWindow(&show_demo_window_);
-    }
-
-    drawSettingsWindow();
+    drawSettingsWindow(&actions);
 
     return actions;
 }
@@ -275,7 +294,7 @@ void EditorUi::drawToolbar(EditorUiActions* actions) {
     ImGui::End();
 }
 
-void EditorUi::drawLeftPane(const EditorUiState& state) {
+void EditorUi::drawLeftPane(const EditorUiState& state, EditorUiActions* /*actions*/) {
     constexpr ImGuiWindowFlags pane_flags =
         ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoMove;
@@ -308,8 +327,6 @@ void EditorUi::drawLeftPane(const EditorUiState& state) {
         ImGui::TextWrapped("Use the Open button to load an OBJ or STL mesh.");
     }
 
-    ImGui::Checkbox("Show ImGui demo window", &show_demo_window_);
-    ImGui::ColorEdit3("Clear color", reinterpret_cast<float*>(&clear_color_));
     ImGui::End();
 }
 
@@ -321,13 +338,21 @@ void EditorUi::drawBottomPane(const EditorUiState& state) {
     ImGui::Begin(kBottomPaneWindowName, nullptr, pane_flags);
     if (ImGui::BeginTabBar("BottomTabs")) {
         if (ImGui::BeginTabItem("Console")) {
+            constexpr ImGuiWindowFlags console_scroll_flags = ImGuiWindowFlags_HorizontalScrollbar;
+            ImGui::BeginChild("ConsoleScrollRegion", ImVec2(0.0F, 0.0F), ImGuiChildFlags_Borders, console_scroll_flags);
             if (state.log_messages.empty()) {
                 ImGui::TextDisabled("No log messages.");
             } else {
                 for (const std::string& log_message : state.log_messages) {
                     ImGui::TextWrapped("%s", log_message.c_str());
                 }
+
+                if (state.log_messages.size() != last_console_log_count_) {
+                    ImGui::SetScrollHereY(1.0F);
+                }
             }
+            last_console_log_count_ = state.log_messages.size();
+            ImGui::EndChild();
             ImGui::EndTabItem();
         }
 
@@ -450,8 +475,22 @@ void EditorUi::drawViewportPane(const EditorUiState& state, EditorUiActions* act
     const int clicked_display_item = drawSegmentedControl("viewport_display", controls_top_right, display_items);
     if (clicked_display_item == 0) {
         viewport_display_settings_.show_wireframe = !viewport_display_settings_.show_wireframe;
+        if (actions != nullptr) {
+            actions->event_logs.push_back(EditorUiLogEvent{
+                .origin = "VIEWPORT",
+                .message = std::string("Show wireframe ") +
+                    (viewport_display_settings_.show_wireframe ? "enabled." : "disabled."),
+            });
+        }
     } else if (clicked_display_item == 1) {
         viewport_display_settings_.shade_triangles = !viewport_display_settings_.shade_triangles;
+        if (actions != nullptr) {
+            actions->event_logs.push_back(EditorUiLogEvent{
+                .origin = "VIEWPORT",
+                .message = std::string("Shade triangles ") +
+                    (viewport_display_settings_.shade_triangles ? "enabled." : "disabled."),
+            });
+        }
     }
 
     const ImVec2 filter_top_right = ImVec2(
@@ -543,7 +582,7 @@ void EditorUi::drawViewportPane(const EditorUiState& state, EditorUiActions* act
     ImGui::End();
 }
 
-void EditorUi::drawSettingsWindow() {
+void EditorUi::drawSettingsWindow(EditorUiActions* actions) {
     if (!settings_window_open_) {
         return;
     }
@@ -577,24 +616,48 @@ void EditorUi::drawSettingsWindow() {
     if (selected_settings_section_ == 0) {
         ImGui::TextUnformatted("Viewport controls");
         ImGui::Separator();
-        ImGui::Checkbox("Invert Y movement", &viewport_control_settings_.invert_y_movement);
-        ImGui::Checkbox("Invert zoom", &viewport_control_settings_.invert_zoom);
+        if (ImGui::Checkbox("Invert Y movement", &viewport_control_settings_.invert_y_movement) && actions != nullptr) {
+            actions->event_logs.push_back(EditorUiLogEvent{
+                .origin = "SETTINGS",
+                .message = std::string("Invert Y movement ") +
+                    (viewport_control_settings_.invert_y_movement ? "enabled." : "disabled."),
+            });
+        }
+        if (ImGui::Checkbox("Invert zoom", &viewport_control_settings_.invert_zoom) && actions != nullptr) {
+            actions->event_logs.push_back(EditorUiLogEvent{
+                .origin = "SETTINGS",
+                .message = std::string("Invert zoom ") +
+                    (viewport_control_settings_.invert_zoom ? "enabled." : "disabled."),
+            });
+        }
 
         int selected_pan_modifier = static_cast<int>(viewport_control_settings_.pan_modifier);
         constexpr const char* pan_modifier_options[] = {"Cmd/Ctrl", "Shift", "Right-click"};
         if (ImGui::Combo("Pan modifier", &selected_pan_modifier, pan_modifier_options, IM_ARRAYSIZE(pan_modifier_options))) {
             viewport_control_settings_.pan_modifier = static_cast<PanModifier>(selected_pan_modifier);
+            if (actions != nullptr) {
+                actions->event_logs.push_back(EditorUiLogEvent{
+                    .origin = "SETTINGS",
+                    .message = std::string("Pan modifier set to ") + panModifierName(viewport_control_settings_.pan_modifier) + ".",
+                });
+            }
         }
     } else if (selected_settings_section_ == 1) {
         ImGui::TextUnformatted("Graphics quality");
         ImGui::Separator();
-        ImGui::SliderInt(
+        if (ImGui::SliderInt(
             "Render resolution",
             &graphics_quality_settings_.render_resolution_percent,
             25,
             100,
             "%d%%"
-        );
+        ) && actions != nullptr) {
+            actions->event_logs.push_back(EditorUiLogEvent{
+                .origin = "SETTINGS",
+                .message = "Render resolution set to " +
+                    std::to_string(graphics_quality_settings_.render_resolution_percent) + "%.",
+            });
+        }
     } else if (selected_settings_section_ == 2) {
         ImGui::TextUnformatted("File import");
         ImGui::Separator();
@@ -603,6 +666,12 @@ void EditorUi::drawSettingsWindow() {
         constexpr const char* up_axis_options[] = {"Y", "Z"};
         if (ImGui::Combo("Up axis", &selected_up_axis, up_axis_options, IM_ARRAYSIZE(up_axis_options))) {
             file_import_settings_.up_axis = selected_up_axis == 0 ? UpAxis::Y : UpAxis::Z;
+            if (actions != nullptr) {
+                actions->event_logs.push_back(EditorUiLogEvent{
+                    .origin = "SETTINGS",
+                    .message = std::string("Import up axis set to ") + upAxisName(file_import_settings_.up_axis) + ".",
+                });
+            }
         }
 
         ImGui::Spacing();
