@@ -55,7 +55,6 @@ EditorApplication::EditorApplication(AppConfig config)
       editor_ui_(window_.nativeHandle(), window_.glslVersion()) {
     platform::initializeNativeMenu(config_.name);
     appendLog("APP", "Ready. Use Open to load a .mt project or import an OBJ/STL mesh.");
-    loadStartupSampleIfPresent();
 }
 
 int EditorApplication::run() {
@@ -66,8 +65,14 @@ int EditorApplication::run() {
         if (menu_actions.open_document) {
             openDocument();
         }
+        if (!menu_actions.open_sample_path.empty()) {
+            openPath(menu_actions.open_sample_path);
+        }
         if (menu_actions.save_project) {
             saveProject();
+        }
+        if (menu_actions.save_project_as) {
+            saveProjectAs();
         }
         if (menu_actions.open_settings) {
             editor_ui_.openSettingsWindow();
@@ -147,15 +152,47 @@ void EditorApplication::openDocument() {
         return;
     }
 
-    if (lowercaseExtension(*selected_path) == ".mt") {
-        loadProjectDocument(*selected_path);
+    openPath(*selected_path);
+}
+
+void EditorApplication::openPath(const std::filesystem::path& path) {
+    if (lowercaseExtension(path) == ".mt") {
+        loadProjectDocument(path);
         return;
     }
 
-    loadMeshDocument(*selected_path);
+    loadMeshDocument(path);
 }
 
 void EditorApplication::saveProject() {
+    if (!active_document_.has_value()) {
+        appendLog("PROJECT", "Save skipped because there is no active project.");
+        return;
+    }
+
+    if (active_project_path_.empty()) {
+        saveProjectAs();
+        return;
+    }
+
+    io::ProjectArchiveSaveResult result = io::saveProjectArchive(
+        active_project_path_,
+        io::ProjectArchiveSaveInput{
+            .document = *active_document_,
+            .log_messages = log_messages_,
+        }
+    );
+    if (!result.succeeded()) {
+        appendLog("PROJECT", "Failed to save project: " + result.error_message);
+        return;
+    }
+
+    active_document_->source_path = active_project_path_;
+    active_document_->display_name_override = active_project_path_.stem().string();
+    appendLog("PROJECT", "Saved project " + active_document_->displayName() + '.');
+}
+
+void EditorApplication::saveProjectAs() {
     if (!active_document_.has_value()) {
         appendLog("PROJECT", "Save skipped because there is no active project.");
         return;
@@ -226,16 +263,6 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
         std::to_string(active_document_->positions.size()) + " vertices, " +
         std::to_string(active_document_->triangles.size()) + " triangles)."
     );
-}
-
-void EditorApplication::loadStartupSampleIfPresent() {
-    const std::filesystem::path sample_path = std::filesystem::path("samples") / "Stanford_Bunny_sample.stl";
-    if (!std::filesystem::exists(sample_path)) {
-        appendLog("APP", "Startup sample not found: " + sample_path.string());
-        return;
-    }
-
-    loadMeshDocument(sample_path);
 }
 
 void EditorApplication::applyViewportCameraInput(const ui::ViewportCameraInput& input) {

@@ -2,13 +2,27 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <algorithm>
+#include <filesystem>
+#include <string>
+#include <vector>
+
 using meshtools::platform::NativeMenuActions;
 
 static NativeMenuActions g_pending_actions;
 
+@interface MeshToolsSampleMenuItem : NSMenuItem
+@property(nonatomic, copy) NSString* samplePath;
+@end
+
+@implementation MeshToolsSampleMenuItem
+@end
+
 @interface MeshToolsMenuTarget : NSObject
 - (void)openDocument:(id)sender;
+- (void)openSample:(id)sender;
 - (void)saveProject:(id)sender;
+- (void)saveProjectAs:(id)sender;
 - (void)openSettings:(id)sender;
 - (void)quitApplication:(id)sender;
 @end
@@ -19,9 +33,23 @@ static NativeMenuActions g_pending_actions;
     g_pending_actions.open_document = true;
 }
 
+- (void)openSample:(id)sender {
+    MeshToolsSampleMenuItem* item = (MeshToolsSampleMenuItem*)sender;
+    if (item.samplePath == nil) {
+        return;
+    }
+
+    g_pending_actions.open_sample_path = std::filesystem::path(std::string([item.samplePath UTF8String]));
+}
+
 - (void)saveProject:(id)sender {
     (void)sender;
     g_pending_actions.save_project = true;
+}
+
+- (void)saveProjectAs:(id)sender {
+    (void)sender;
+    g_pending_actions.save_project_as = true;
 }
 
 - (void)openSettings:(id)sender {
@@ -41,6 +69,30 @@ namespace {
 MeshToolsMenuTarget* menuTarget() {
     static MeshToolsMenuTarget* target = [[MeshToolsMenuTarget alloc] init];
     return target;
+}
+
+std::vector<std::filesystem::path> sampleFiles() {
+    std::vector<std::filesystem::path> paths;
+    const std::filesystem::path sample_directory = "samples";
+    if (!std::filesystem::exists(sample_directory)) {
+        return paths;
+    }
+
+    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(sample_directory)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        const std::string extension = entry.path().extension().string();
+        if (extension == ".mt" || extension == ".stl") {
+            paths.push_back(entry.path());
+        }
+    }
+
+    std::sort(paths.begin(), paths.end(), [](const auto& left, const auto& right) {
+        return left.filename().string() < right.filename().string();
+    });
+    return paths;
 }
 
 }  // namespace
@@ -72,9 +124,28 @@ void initializeNativeMenu(const std::string& app_name) {
         [open_item setTarget:menuTarget()];
         [file_menu addItem:open_item];
 
-        NSMenuItem* save_item = [[NSMenuItem alloc] initWithTitle:@"Save Project…" action:@selector(saveProject:) keyEquivalent:@"s"];
+        NSMenuItem* open_sample_item = [[NSMenuItem alloc] initWithTitle:@"Open Sample" action:nil keyEquivalent:@""];
+        NSMenu* open_sample_menu = [[NSMenu alloc] initWithTitle:@"Open Sample"];
+        for (const std::filesystem::path& sample_path : sampleFiles()) {
+            MeshToolsSampleMenuItem* sample_item =
+                [[MeshToolsSampleMenuItem alloc] initWithTitle:[NSString stringWithUTF8String:sample_path.filename().string().c_str()]
+                                                        action:@selector(openSample:)
+                                                 keyEquivalent:@""];
+            sample_item.samplePath = [NSString stringWithUTF8String:sample_path.string().c_str()];
+            [sample_item setTarget:menuTarget()];
+            [open_sample_menu addItem:sample_item];
+        }
+        [open_sample_item setSubmenu:open_sample_menu];
+        [file_menu addItem:open_sample_item];
+
+        NSMenuItem* save_item = [[NSMenuItem alloc] initWithTitle:@"Save" action:@selector(saveProject:) keyEquivalent:@"s"];
         [save_item setTarget:menuTarget()];
         [file_menu addItem:save_item];
+
+        NSMenuItem* save_as_item =
+            [[NSMenuItem alloc] initWithTitle:@"Save As…" action:@selector(saveProjectAs:) keyEquivalent:@"S"];
+        [save_as_item setTarget:menuTarget()];
+        [file_menu addItem:save_as_item];
         [file_menu_item setSubmenu:file_menu];
 
         [NSApp setMainMenu:menu_bar];

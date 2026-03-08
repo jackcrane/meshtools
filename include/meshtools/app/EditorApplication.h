@@ -27,10 +27,11 @@ class EditorApplication {
   private:
     void appendLog(std::string origin, std::string message);
     void openDocument();
+    void openPath(const std::filesystem::path& path);
     void saveProject();
+    void saveProjectAs();
     void loadMeshDocument(const std::filesystem::path& path);
     void loadProjectDocument(const std::filesystem::path& path);
-    void loadStartupSampleIfPresent();
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
 
     AppConfig config_;
