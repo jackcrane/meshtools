@@ -27,6 +27,7 @@ class ViewportPane {
         std::string_view face_shortcut,
         std::string_view point_shortcut,
         std::string_view add_to_entity_set_shortcut,
+        std::string_view expand_selection_shortcut,
         std::string_view invert_selection_shortcut,
         EditorUiActions* actions,
         const std::function<void()>& on_toggle_wireframe,
@@ -38,6 +39,7 @@ class ViewportPane {
         const std::function<void()>& on_invert_selection
     );
 
+    void openExpandSelectionDialog();
     void setTexture(std::uint32_t texture_id);
     [[nodiscard]] ImVec2 renderSize() const;
     [[nodiscard]] ImVec2 renderTargetSize(const GraphicsQualitySettings& graphics_quality_settings) const;
@@ -57,12 +59,18 @@ class ViewportPane {
         bool selected = false;
     };
 
+    enum class EntitySetPickerMode {
+        CurrentSelection,
+        ExpandSelection,
+    };
+
     [[nodiscard]] int drawSegmentedControl(
         const char* id,
         const ImVec2& top_right,
         std::span<const SegmentedControlItem> items
     ) const;
-    void queueEntitySetPicker(const ImVec2& mouse_position);
+    void queueEntitySetPicker(const ImVec2& mouse_position, EntitySetPickerMode mode = EntitySetPickerMode::CurrentSelection);
+    void drawExpandSelectionDialog(const EditorUiState& state, EditorUiActions* actions);
 
     GLFWwindow* window_ = nullptr;
     ImVec2 render_size_ = ImVec2(1280.0F, 720.0F);
@@ -72,6 +80,11 @@ class ViewportPane {
     bool right_click_context_eligible_ = false;
     bool entity_set_picker_pending_open_ = false;
     ImVec2 entity_set_picker_anchor_ = ImVec2(0.0F, 0.0F);
+    EntitySetPickerMode entity_set_picker_mode_ = EntitySetPickerMode::CurrentSelection;
+    bool expand_selection_dialog_open_ = false;
+    bool expand_selection_dialog_pending_open_ = false;
+    bool close_expand_selection_dialog_ = false;
+    EditorUiActions::ExpandSelectionConfig expand_selection_config_{};
 };
 
 }  // namespace meshtools::ui

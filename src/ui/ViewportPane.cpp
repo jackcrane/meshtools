@@ -17,6 +17,7 @@ constexpr float kOverlayPadding = 10.0F;
 constexpr float kSelectionDragThreshold = 4.0F;
 constexpr const char* kViewportContextMenuName = "ViewportContextMenu";
 constexpr const char* kEntitySetPickerPopupName = "ViewportEntitySetPicker";
+constexpr const char* kExpandSelectionDialogName = "Expand Selection";
 
 bool isCmdOrCtrlHeld(GLFWwindow* window, const ImGuiIO& io) {
     if (window != nullptr) {
@@ -78,6 +79,7 @@ void ViewportPane::draw(
     std::string_view face_shortcut,
     std::string_view point_shortcut,
     std::string_view add_to_entity_set_shortcut,
+    std::string_view expand_selection_shortcut,
     std::string_view invert_selection_shortcut,
     EditorUiActions* actions,
     const std::function<void()>& on_toggle_wireframe,
@@ -225,6 +227,8 @@ void ViewportPane::draw(
         invert_selection_shortcut.empty() ? nullptr : invert_selection_shortcut.data();
     const char* add_to_entity_set_shortcut_label =
         add_to_entity_set_shortcut.empty() ? nullptr : add_to_entity_set_shortcut.data();
+    const char* expand_selection_shortcut_label =
+        expand_selection_shortcut.empty() ? nullptr : expand_selection_shortcut.data();
     const bool can_add_selection_to_entity_set =
         actions != nullptr &&
         state.active_document != nullptr &&
@@ -236,7 +240,7 @@ void ViewportPane::draw(
             if (state.entity_sets.empty()) {
                 actions->request_create_entity_set_from_selection = true;
             } else {
-                queueEntitySetPicker(ImGui::GetMousePos());
+                queueEntitySetPicker(ImGui::GetMousePos(), EntitySetPickerMode::CurrentSelection);
             }
         }
     }
@@ -373,11 +377,14 @@ void ViewportPane::draw(
                     actions->request_create_entity_set_from_selection = true;
                 }
             } else {
-                queueEntitySetPicker(ImGui::GetMousePos());
+                queueEntitySetPicker(ImGui::GetMousePos(), EntitySetPickerMode::CurrentSelection);
             }
         }
         ImGui::EndDisabled();
         ImGui::Separator();
+        if (ImGui::MenuItem("Expand selection", expand_selection_shortcut_label)) {
+            openExpandSelectionDialog();
+        }
         if (ImGui::MenuItem("Invert selection", invert_selection_shortcut_label)) {
             on_invert_selection();
         }
@@ -395,7 +402,15 @@ void ViewportPane::draw(
     if (ImGui::BeginPopup(kEntitySetPickerPopupName)) {
         if (ImGui::Selectable("New Entity Set")) {
             if (actions != nullptr) {
-                actions->request_create_entity_set_from_selection = true;
+                if (entity_set_picker_mode_ == EntitySetPickerMode::ExpandSelection) {
+                    actions->request_expand_selection = EditorUiActions::ExpandSelectionRequest{
+                        .config = expand_selection_config_,
+                        .intent = EditorUiActions::ExpandSelectionRequest::Intent::CreateEntitySet,
+                    };
+                    close_expand_selection_dialog_ = true;
+                } else {
+                    actions->request_create_entity_set_from_selection = true;
+                }
             }
             ImGui::CloseCurrentPopup();
         }
@@ -405,7 +420,16 @@ void ViewportPane::draw(
             ImGui::PushID(static_cast<int>(index));
             if (ImGui::Selectable(entity_set.name.c_str())) {
                 if (actions != nullptr) {
-                    actions->request_add_selection_to_existing_entity_set_index = index;
+                    if (entity_set_picker_mode_ == EntitySetPickerMode::ExpandSelection) {
+                        actions->request_expand_selection = EditorUiActions::ExpandSelectionRequest{
+                            .config = expand_selection_config_,
+                            .intent = EditorUiActions::ExpandSelectionRequest::Intent::AddToExistingEntitySet,
+                            .entity_set_index = index,
+                        };
+                        close_expand_selection_dialog_ = true;
+                    } else {
+                        actions->request_add_selection_to_existing_entity_set_index = index;
+                    }
                 }
                 ImGui::CloseCurrentPopup();
             }
@@ -414,7 +438,14 @@ void ViewportPane::draw(
         ImGui::EndPopup();
     }
 
+    drawExpandSelectionDialog(state, actions);
+
     ImGui::End();
+}
+
+void ViewportPane::openExpandSelectionDialog() {
+    expand_selection_dialog_pending_open_ = true;
+    close_expand_selection_dialog_ = false;
 }
 
 void ViewportPane::setTexture(std::uint32_t texture_id) {
@@ -482,9 +513,162 @@ int ViewportPane::drawSegmentedControl(
     return clicked_index;
 }
 
-void ViewportPane::queueEntitySetPicker(const ImVec2& mouse_position) {
+void ViewportPane::queueEntitySetPicker(const ImVec2& mouse_position, EntitySetPickerMode mode) {
     entity_set_picker_anchor_ = ImVec2(mouse_position.x + 6.0F, mouse_position.y + 6.0F);
     entity_set_picker_pending_open_ = true;
+    entity_set_picker_mode_ = mode;
+}
+
+void ViewportPane::drawExpandSelectionDialog(const EditorUiState& state, EditorUiActions* actions) {
+    if (expand_selection_dialog_pending_open_) {
+        ImGui::OpenPopup(kExpandSelectionDialogName);
+        expand_selection_dialog_open_ = true;
+        expand_selection_dialog_pending_open_ = false;
+    }
+
+    if (!expand_selection_dialog_open_ && !ImGui::IsPopupOpen(kExpandSelectionDialogName)) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(420.0F, 0.0F), ImGuiCond_Appearing);
+    bool keep_dialog_open = expand_selection_dialog_open_;
+    if (ImGui::BeginPopupModal(kExpandSelectionDialogName, &keep_dialog_open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (close_expand_selection_dialog_) {
+            close_expand_selection_dialog_ = false;
+            keep_dialog_open = false;
+            expand_selection_dialog_open_ = false;
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        if (actions != nullptr) {
+            actions->expand_selection_dialog_open = true;
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            keep_dialog_open = false;
+            expand_selection_dialog_open_ = false;
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        constexpr const char* method_names[] = {
+            "Coplanar",
+            "Adjacent",
+            "Intersecting Normals",
+        };
+
+        int selected_method = 0;
+        switch (expand_selection_config_.method) {
+            case ExpandSelectionMethod::Coplanar:
+                selected_method = 0;
+                break;
+            case ExpandSelectionMethod::Adjacent:
+                selected_method = 1;
+                break;
+            case ExpandSelectionMethod::IntersectingNormals:
+                selected_method = 2;
+                break;
+        }
+
+        if (ImGui::Combo("Method", &selected_method, method_names, IM_ARRAYSIZE(method_names))) {
+            switch (selected_method) {
+                case 0:
+                    expand_selection_config_.method = ExpandSelectionMethod::Coplanar;
+                    break;
+                case 1:
+                    expand_selection_config_.method = ExpandSelectionMethod::Adjacent;
+                    break;
+                default:
+                    expand_selection_config_.method = ExpandSelectionMethod::IntersectingNormals;
+                    break;
+            }
+        }
+
+        switch (expand_selection_config_.method) {
+            case ExpandSelectionMethod::Coplanar:
+                ImGui::Checkbox("Include Parallel", &expand_selection_config_.coplanar_include_parallel);
+                ImGui::Checkbox("Select adjacent only", &expand_selection_config_.coplanar_select_adjacent_only);
+                ImGui::InputFloat("Tolerance (%)", &expand_selection_config_.coplanar_tolerance_percent, 0.001F, 0.01F, "%.4f");
+                expand_selection_config_.coplanar_tolerance_percent =
+                    std::max(expand_selection_config_.coplanar_tolerance_percent, 0.0F);
+                break;
+            case ExpandSelectionMethod::Adjacent:
+                ImGui::InputFloat("Max angle", &expand_selection_config_.adjacent_max_angle_degrees, 1.0F, 5.0F, "%.2f");
+                expand_selection_config_.adjacent_max_angle_degrees =
+                    std::clamp(expand_selection_config_.adjacent_max_angle_degrees, 0.0F, 180.0F);
+                break;
+            case ExpandSelectionMethod::IntersectingNormals:
+                ImGui::Checkbox("Include inverse normals", &expand_selection_config_.intersecting_include_inverse_normals);
+                ImGui::InputFloat("Tolerance", &expand_selection_config_.intersecting_tolerance, 0.01F, 0.05F, "%.3f");
+                expand_selection_config_.intersecting_tolerance =
+                    std::max(expand_selection_config_.intersecting_tolerance, 0.0001F);
+                if (!state.expand_selection_feedback.linear_intersection_enabled) {
+                    expand_selection_config_.intersecting_allow_linear_intersection = false;
+                }
+                ImGui::BeginDisabled(!state.expand_selection_feedback.linear_intersection_enabled);
+                ImGui::Checkbox("Allow linear intersection", &expand_selection_config_.intersecting_allow_linear_intersection);
+                ImGui::EndDisabled();
+                break;
+        }
+
+        if (actions != nullptr) {
+            actions->request_expand_selection = EditorUiActions::ExpandSelectionRequest{
+                .config = expand_selection_config_,
+                .intent = EditorUiActions::ExpandSelectionRequest::Intent::Preview,
+            };
+        }
+
+        ImGui::Spacing();
+        if (state.expand_selection_feedback.available) {
+            ImGui::Text(
+                "Preview: +%zu faces, %zu total entities",
+                state.expand_selection_feedback.preview_added_face_count,
+                state.expand_selection_feedback.preview_total_count
+            );
+        } else if (!state.expand_selection_feedback.unavailable_reasons.empty()) {
+            ImGui::SeparatorText("Unavailable");
+            for (const std::string& reason : state.expand_selection_feedback.unavailable_reasons) {
+                ImGui::TextWrapped("- %s", reason.c_str());
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::BeginDisabled(!state.expand_selection_feedback.available);
+        if (ImGui::Button("Select", ImVec2(120.0F, 0.0F)) && actions != nullptr) {
+            actions->request_expand_selection = EditorUiActions::ExpandSelectionRequest{
+                .config = expand_selection_config_,
+                .intent = EditorUiActions::ExpandSelectionRequest::Intent::Select,
+            };
+            keep_dialog_open = false;
+            expand_selection_dialog_open_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Add to Entity Set", ImVec2(160.0F, 0.0F)) && actions != nullptr) {
+            if (state.entity_sets.empty()) {
+                actions->request_expand_selection = EditorUiActions::ExpandSelectionRequest{
+                    .config = expand_selection_config_,
+                    .intent = EditorUiActions::ExpandSelectionRequest::Intent::CreateEntitySet,
+                };
+                keep_dialog_open = false;
+                expand_selection_dialog_open_ = false;
+                ImGui::CloseCurrentPopup();
+            } else {
+                queueEntitySetPicker(ImGui::GetMousePos(), EntitySetPickerMode::ExpandSelection);
+            }
+        }
+        ImGui::EndDisabled();
+
+        expand_selection_dialog_open_ = keep_dialog_open;
+        ImGui::EndPopup();
+        return;
+    }
+
+    expand_selection_dialog_open_ = keep_dialog_open && ImGui::IsPopupOpen(kExpandSelectionDialogName);
 }
 
 }  // namespace meshtools::ui

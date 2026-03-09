@@ -12,6 +12,15 @@
 namespace meshtools::ui {
 
 struct EditorUiState {
+    struct ExpandSelectionFeedback {
+        bool available = false;
+        bool linear_intersection_enabled = false;
+        std::size_t preview_total_count = 0;
+        std::size_t preview_face_count = 0;
+        std::size_t preview_added_face_count = 0;
+        std::span<const std::string> unavailable_reasons;
+    };
+
     mesh::MeshDocument* active_document = nullptr;
     std::span<const mesh::EntitySet> entity_sets;
     std::optional<std::size_t> selected_entity_set_index;
@@ -27,6 +36,7 @@ struct EditorUiState {
             return edge_count + face_count + point_count;
         }
     } selection_summary;
+    ExpandSelectionFeedback expand_selection_feedback;
 };
 
 enum class PanModifier {
@@ -55,6 +65,12 @@ struct SelectionFilters {
 };
 
 using UpAxis = mesh::UpAxis;
+
+enum class ExpandSelectionMethod {
+    Coplanar,
+    Adjacent,
+    IntersectingNormals,
+};
 
 struct ViewportControlSettings {
     bool invert_y_movement = true;
@@ -112,6 +128,30 @@ struct EditorUiLogEvent {
 };
 
 struct EditorUiActions {
+    struct ExpandSelectionConfig {
+        ExpandSelectionMethod method = ExpandSelectionMethod::Coplanar;
+        bool coplanar_include_parallel = false;
+        bool coplanar_select_adjacent_only = true;
+        float coplanar_tolerance_percent = 0.01F;
+        float adjacent_max_angle_degrees = 10.0F;
+        bool intersecting_include_inverse_normals = false;
+        float intersecting_tolerance = 0.05F;
+        bool intersecting_allow_linear_intersection = false;
+    };
+
+    struct ExpandSelectionRequest {
+        enum class Intent {
+            Preview,
+            Select,
+            CreateEntitySet,
+            AddToExistingEntitySet,
+        };
+
+        ExpandSelectionConfig config;
+        Intent intent = Intent::Preview;
+        std::optional<std::size_t> entity_set_index;
+    };
+
     struct EntitySetRenameRequest {
         std::size_t index = 0;
         std::string name;
@@ -124,9 +164,11 @@ struct EditorUiActions {
     bool request_add_selection_to_entity_set = false;
     bool request_create_entity_set_from_selection = false;
     bool request_select_document_scene_item = false;
+    bool expand_selection_dialog_open = false;
     std::optional<std::size_t> request_add_selection_to_existing_entity_set_index;
     std::optional<std::size_t> request_select_entity_set_index;
     std::optional<EntitySetRenameRequest> request_rename_entity_set;
+    std::optional<ExpandSelectionRequest> request_expand_selection;
     ViewportCameraInput viewport_camera;
     ViewportSelectionRequest viewport_selection;
     std::vector<EditorUiLogEvent> event_logs;

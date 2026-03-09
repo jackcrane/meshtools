@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "meshtools/mesh/MeshDocument.h"
@@ -42,6 +43,31 @@ class ViewportRenderer {
         bool shade_triangles = true;
         bool show_points = false;
         UpAxis source_up_axis = UpAxis::Y;
+    };
+
+    enum class ExpandSelectionMethod {
+        Coplanar,
+        Adjacent,
+        IntersectingNormals,
+    };
+
+    struct ExpandSelectionParams {
+        ExpandSelectionMethod method = ExpandSelectionMethod::Coplanar;
+        bool coplanar_include_parallel = false;
+        bool coplanar_select_adjacent_only = true;
+        float coplanar_tolerance_percent = 0.01F;
+        float adjacent_max_angle_degrees = 10.0F;
+        bool intersecting_include_inverse_normals = false;
+        float intersecting_tolerance = 0.05F;
+        bool intersecting_allow_linear_intersection = false;
+    };
+
+    struct ExpandSelectionResult {
+        bool available = false;
+        bool linear_intersection_enabled = false;
+        mesh::EntitySelection selection;
+        std::vector<std::uint32_t> preview_face_indices;
+        std::vector<std::string> unavailable_reasons;
     };
 
     struct CameraState {
@@ -87,6 +113,9 @@ class ViewportRenderer {
     void clearSelection();
     [[nodiscard]] mesh::EntitySelection currentSelection() const;
     void setSelection(mesh::EntitySelection selection);
+    [[nodiscard]] ExpandSelectionResult evaluateExpandSelection(const ExpandSelectionParams& params) const;
+    void setExpandSelectionPreview(std::vector<std::uint32_t> face_indices);
+    void clearExpandSelectionPreview();
 
     [[nodiscard]] std::uint32_t textureId() const;
     [[nodiscard]] int textureWidth() const;
@@ -140,6 +169,8 @@ class ViewportRenderer {
     std::uint32_t axis_vertex_buffer_ = 0;
     std::uint32_t selected_face_vertex_array_ = 0;
     std::uint32_t selected_face_vertex_buffer_ = 0;
+    std::uint32_t preview_face_vertex_array_ = 0;
+    std::uint32_t preview_face_vertex_buffer_ = 0;
     std::uint32_t selected_edge_vertex_array_ = 0;
     std::uint32_t selected_edge_vertex_buffer_ = 0;
     std::uint32_t selected_point_vertex_array_ = 0;
@@ -147,6 +178,7 @@ class ViewportRenderer {
     std::uint32_t vertex_count_ = 0;
     std::uint32_t index_count_ = 0;
     std::uint32_t selected_face_vertex_count_ = 0;
+    std::uint32_t preview_face_vertex_count_ = 0;
     std::uint32_t selected_edge_vertex_count_ = 0;
     std::uint32_t selected_point_vertex_count_ = 0;
     int framebuffer_width_ = 0;
@@ -162,6 +194,7 @@ class ViewportRenderer {
     std::vector<std::uint32_t> selected_edge_indices_;
     std::vector<std::uint32_t> selected_face_indices_;
     std::vector<std::uint32_t> selected_point_indices_;
+    std::vector<std::uint32_t> preview_face_indices_;
     std::optional<std::uint32_t> face_selection_anchor_;
     std::optional<std::uint32_t> edge_selection_anchor_;
     SelectionSummary selection_summary_{};

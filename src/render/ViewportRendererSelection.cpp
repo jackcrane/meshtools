@@ -1,9 +1,12 @@
 #include "meshtools/render/ViewportRenderer.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <deque>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -89,6 +92,426 @@ std::vector<std::uint32_t> findShortestPath(
     return path;
 }
 
+struct FaceAnalysis {
+    mesh::Vec3 centroid;
+    mesh::Vec3 normal;
+    float plane_offset = 0.0F;
+};
+
+struct PointTarget {
+    bool valid = false;
+    bool too_far = false;
+    mesh::Vec3 point;
+};
+
+struct LineTarget {
+    bool valid = false;
+    bool too_far = false;
+    mesh::Vec3 point;
+    mesh::Vec3 direction;
+};
+
+struct ClosestLinePoints {
+    bool valid = false;
+    float first_parameter = 0.0F;
+    float second_parameter = 0.0F;
+    mesh::Vec3 first_point;
+    mesh::Vec3 second_point;
+    float distance = 0.0F;
+};
+
+float modelDiagonalLength(const std::vector<mesh::Vec3>& positions) {
+    if (positions.empty()) {
+        return 1.0F;
+    }
+
+    mesh::Vec3 minimum = positions.front();
+    mesh::Vec3 maximum = positions.front();
+    for (const mesh::Vec3& position : positions) {
+        minimum.x = std::min(minimum.x, position.x);
+        minimum.y = std::min(minimum.y, position.y);
+        minimum.z = std::min(minimum.z, position.z);
+        maximum.x = std::max(maximum.x, position.x);
+        maximum.y = std::max(maximum.y, position.y);
+        maximum.z = std::max(maximum.z, position.z);
+    }
+
+    return detail::length(detail::subtract(maximum, minimum));
+}
+
+std::vector<FaceAnalysis> buildFaceAnalysis(
+    const std::vector<mesh::Vec3>& positions,
+    const std::vector<mesh::Triangle>& triangles
+) {
+    std::vector<FaceAnalysis> analysis;
+    analysis.reserve(triangles.size());
+    for (const mesh::Triangle& triangle : triangles) {
+        const mesh::Vec3 centroid = detail::scale(
+            detail::add(detail::add(positions[triangle.a], positions[triangle.b]), positions[triangle.c]),
+            1.0F / 3.0F
+        );
+        const mesh::Vec3 edge_ab = detail::subtract(positions[triangle.b], positions[triangle.a]);
+        const mesh::Vec3 edge_ac = detail::subtract(positions[triangle.c], positions[triangle.a]);
+        const mesh::Vec3 normal = detail::normalize(detail::cross(edge_ab, edge_ac));
+        analysis.push_back(FaceAnalysis{
+            .centroid = centroid,
+            .normal = normal,
+            .plane_offset = detail::dot(normal, centroid),
+        });
+    }
+    return analysis;
+}
+
+mesh::EntitySelection makeExpandedFaceSelection(
+    const mesh::EntitySelection& current_selection,
+    std::vector<std::uint32_t> expanded_faces,
+    std::size_t max_face_count
+) {
+    normalizeSelectionIndices(expanded_faces, max_face_count);
+    mesh::EntitySelection selection = current_selection;
+    selection.face_indices = std::move(expanded_faces);
+    return selection;
+}
+
+std::vector<std::uint32_t> collectPreviewFaces(
+    const std::vector<std::uint32_t>& current_faces,
+    const std::vector<std::uint32_t>& expanded_faces
+) {
+    std::vector<std::uint32_t> preview_faces;
+    preview_faces.reserve(expanded_faces.size());
+    for (const std::uint32_t face_index : expanded_faces) {
+        if (!containsIndex(current_faces, face_index)) {
+            preview_faces.push_back(face_index);
+        }
+    }
+    return preview_faces;
+}
+
+bool solve3x3(
+    const std::array<std::array<float, 3>, 3>& matrix,
+    const std::array<float, 3>& right_hand_side,
+    mesh::Vec3* solution
+) {
+    const float determinant =
+        (matrix[0][0] * ((matrix[1][1] * matrix[2][2]) - (matrix[1][2] * matrix[2][1]))) -
+        (matrix[0][1] * ((matrix[1][0] * matrix[2][2]) - (matrix[1][2] * matrix[2][0]))) +
+        (matrix[0][2] * ((matrix[1][0] * matrix[2][1]) - (matrix[1][1] * matrix[2][0])));
+    if (std::abs(determinant) <= 1.0e-6F || solution == nullptr) {
+        return false;
+    }
+
+    auto determinant_with_column = [&matrix](const std::array<float, 3>& column, int replace_column) {
+        std::array<std::array<float, 3>, 3> modified = matrix;
+        const std::size_t column_index = static_cast<std::size_t>(replace_column);
+        for (std::size_t row = 0; row < 3U; ++row) {
+            modified[row][column_index] = column[row];
+        }
+        return
+            (modified[0][0] * ((modified[1][1] * modified[2][2]) - (modified[1][2] * modified[2][1]))) -
+            (modified[0][1] * ((modified[1][0] * modified[2][2]) - (modified[1][2] * modified[2][0]))) +
+            (modified[0][2] * ((modified[1][0] * modified[2][1]) - (modified[1][1] * modified[2][0])));
+    };
+
+    solution->x = determinant_with_column(right_hand_side, 0) / determinant;
+    solution->y = determinant_with_column(right_hand_side, 1) / determinant;
+    solution->z = determinant_with_column(right_hand_side, 2) / determinant;
+    return true;
+}
+
+bool pointMatchesNormalTarget(
+    const FaceAnalysis& face,
+    const mesh::Vec3& target,
+    float tolerance,
+    bool include_inverse_normals
+) {
+    const mesh::Vec3 delta = detail::subtract(target, face.centroid);
+    const float along_normal = detail::dot(delta, face.normal);
+    if (!include_inverse_normals && along_normal < (-tolerance)) {
+        return false;
+    }
+
+    const mesh::Vec3 projected = detail::scale(face.normal, along_normal);
+    const mesh::Vec3 perpendicular = detail::subtract(delta, projected);
+    return detail::length(perpendicular) <= tolerance;
+}
+
+ClosestLinePoints closestPointsBetweenLines(
+    const mesh::Vec3& first_point,
+    const mesh::Vec3& first_direction,
+    const mesh::Vec3& second_point,
+    const mesh::Vec3& second_direction
+) {
+    const mesh::Vec3 delta = detail::subtract(first_point, second_point);
+    const float first_dot_first = detail::dot(first_direction, first_direction);
+    const float first_dot_second = detail::dot(first_direction, second_direction);
+    const float second_dot_second = detail::dot(second_direction, second_direction);
+    const float first_dot_delta = detail::dot(first_direction, delta);
+    const float second_dot_delta = detail::dot(second_direction, delta);
+    const float denominator =
+        (first_dot_first * second_dot_second) - (first_dot_second * first_dot_second);
+    if (std::abs(denominator) <= 1.0e-6F) {
+        return {};
+    }
+
+    const float first_parameter =
+        ((first_dot_second * second_dot_delta) - (second_dot_second * first_dot_delta)) / denominator;
+    const float second_parameter =
+        ((first_dot_first * second_dot_delta) - (first_dot_second * first_dot_delta)) / denominator;
+    const mesh::Vec3 closest_first = detail::add(first_point, detail::scale(first_direction, first_parameter));
+    const mesh::Vec3 closest_second = detail::add(second_point, detail::scale(second_direction, second_parameter));
+    return ClosestLinePoints{
+        .valid = true,
+        .first_parameter = first_parameter,
+        .second_parameter = second_parameter,
+        .first_point = closest_first,
+        .second_point = closest_second,
+        .distance = detail::length(detail::subtract(closest_first, closest_second)),
+    };
+}
+
+bool lineMatchesNormalTarget(
+    const FaceAnalysis& face,
+    const mesh::Vec3& target_point,
+    const mesh::Vec3& target_direction,
+    float tolerance,
+    bool include_inverse_normals
+) {
+    const ClosestLinePoints closest = closestPointsBetweenLines(
+        face.centroid,
+        face.normal,
+        target_point,
+        target_direction
+    );
+    if (closest.valid) {
+        if (closest.distance > tolerance) {
+            return false;
+        }
+        return include_inverse_normals || closest.first_parameter >= (-tolerance);
+    }
+
+    const mesh::Vec3 delta = detail::subtract(target_point, face.centroid);
+    const float along_normal = detail::dot(delta, face.normal);
+    const mesh::Vec3 perpendicular = detail::subtract(delta, detail::scale(face.normal, along_normal));
+    if (detail::length(perpendicular) > tolerance) {
+        return false;
+    }
+    return include_inverse_normals || along_normal >= (-tolerance);
+}
+
+bool facesMatchCoplanar(
+    const FaceAnalysis& candidate_face,
+    const FaceAnalysis& reference_face,
+    float tolerance_distance,
+    float normal_alignment_tolerance,
+    bool include_parallel
+) {
+    const float normal_dot = detail::dot(candidate_face.normal, reference_face.normal);
+    if ((1.0F - std::abs(normal_dot)) > normal_alignment_tolerance) {
+        return false;
+    }
+
+    if (!include_parallel) {
+        const float orientation = normal_dot >= 0.0F ? 1.0F : -1.0F;
+        const float plane_distance = std::abs(
+            reference_face.plane_offset - (candidate_face.plane_offset * orientation)
+        );
+        if (plane_distance > tolerance_distance) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+PointTarget findCommonPointTarget(
+    const std::vector<FaceAnalysis>& faces,
+    const std::vector<std::uint32_t>& selected_faces,
+    float tolerance,
+    bool include_inverse_normals,
+    float max_distance_from_model
+) {
+    if (selected_faces.size() < 2U) {
+        return {};
+    }
+
+    std::array<std::array<float, 3>, 3> system{};
+    std::array<float, 3> right_hand_side{};
+    for (const std::uint32_t face_index : selected_faces) {
+        if (face_index >= faces.size()) {
+            continue;
+        }
+
+        const mesh::Vec3& direction = faces[face_index].normal;
+        const float dx = direction.x;
+        const float dy = direction.y;
+        const float dz = direction.z;
+        const std::array<std::array<float, 3>, 3> projection = {{
+            {{1.0F - (dx * dx), -(dx * dy), -(dx * dz)}},
+            {{-(dy * dx), 1.0F - (dy * dy), -(dy * dz)}},
+            {{-(dz * dx), -(dz * dy), 1.0F - (dz * dz)}},
+        }};
+
+        system[0][0] += projection[0][0];
+        system[0][1] += projection[0][1];
+        system[0][2] += projection[0][2];
+        system[1][0] += projection[1][0];
+        system[1][1] += projection[1][1];
+        system[1][2] += projection[1][2];
+        system[2][0] += projection[2][0];
+        system[2][1] += projection[2][1];
+        system[2][2] += projection[2][2];
+
+        right_hand_side[0] +=
+            (projection[0][0] * faces[face_index].centroid.x) +
+            (projection[0][1] * faces[face_index].centroid.y) +
+            (projection[0][2] * faces[face_index].centroid.z);
+        right_hand_side[1] +=
+            (projection[1][0] * faces[face_index].centroid.x) +
+            (projection[1][1] * faces[face_index].centroid.y) +
+            (projection[1][2] * faces[face_index].centroid.z);
+        right_hand_side[2] +=
+            (projection[2][0] * faces[face_index].centroid.x) +
+            (projection[2][1] * faces[face_index].centroid.y) +
+            (projection[2][2] * faces[face_index].centroid.z);
+    }
+
+    mesh::Vec3 solution{};
+    if (!solve3x3(system, right_hand_side, &solution)) {
+        return {};
+    }
+
+    if (detail::length(solution) > max_distance_from_model) {
+        return PointTarget{
+            .valid = false,
+            .too_far = true,
+            .point = solution,
+        };
+    }
+
+    for (const std::uint32_t face_index : selected_faces) {
+        if (face_index >= faces.size()) {
+            continue;
+        }
+        if (!pointMatchesNormalTarget(faces[face_index], solution, tolerance, include_inverse_normals)) {
+            return {};
+        }
+    }
+
+    return PointTarget{
+        .valid = true,
+        .point = solution,
+    };
+}
+
+LineTarget findCommonLineTarget(
+    const std::vector<FaceAnalysis>& faces,
+    const std::vector<std::uint32_t>& selected_faces,
+    float tolerance,
+    bool include_inverse_normals,
+    float max_distance_from_model
+) {
+    if (selected_faces.size() < 4U) {
+        return {};
+    }
+
+    struct Cluster {
+        mesh::Vec3 center{};
+        std::size_t count = 0;
+    };
+
+    std::vector<Cluster> clusters;
+    const float cluster_radius = std::max(tolerance * 2.0F, 0.01F);
+    for (std::size_t left_index = 0; left_index < selected_faces.size(); ++left_index) {
+        for (std::size_t right_index = left_index + 1U; right_index < selected_faces.size(); ++right_index) {
+            const std::uint32_t first_face_index = selected_faces[left_index];
+            const std::uint32_t second_face_index = selected_faces[right_index];
+            if (first_face_index >= faces.size() || second_face_index >= faces.size()) {
+                continue;
+            }
+
+            const ClosestLinePoints closest = closestPointsBetweenLines(
+                faces[first_face_index].centroid,
+                faces[first_face_index].normal,
+                faces[second_face_index].centroid,
+                faces[second_face_index].normal
+            );
+            if (!closest.valid || closest.distance > tolerance) {
+                continue;
+            }
+            if (!include_inverse_normals &&
+                (closest.first_parameter < (-tolerance) || closest.second_parameter < (-tolerance))) {
+                continue;
+            }
+
+            const mesh::Vec3 candidate = detail::scale(detail::add(closest.first_point, closest.second_point), 0.5F);
+            if (detail::length(candidate) > max_distance_from_model) {
+                continue;
+            }
+
+            auto existing_cluster = std::find_if(clusters.begin(), clusters.end(), [&](const Cluster& cluster) {
+                return detail::length(detail::subtract(cluster.center, candidate)) <= cluster_radius;
+            });
+            if (existing_cluster == clusters.end()) {
+                clusters.push_back(Cluster{
+                    .center = candidate,
+                    .count = 1U,
+                });
+            } else {
+                const float weight = static_cast<float>(existing_cluster->count);
+                existing_cluster->center = detail::scale(
+                    detail::add(detail::scale(existing_cluster->center, weight), candidate),
+                    1.0F / (weight + 1.0F)
+                );
+                ++existing_cluster->count;
+            }
+        }
+    }
+
+    std::sort(clusters.begin(), clusters.end(), [](const Cluster& left, const Cluster& right) {
+        return left.count > right.count;
+    });
+
+    for (std::size_t first_cluster_index = 0; first_cluster_index < clusters.size(); ++first_cluster_index) {
+        for (std::size_t second_cluster_index = first_cluster_index + 1U; second_cluster_index < clusters.size(); ++second_cluster_index) {
+            const mesh::Vec3 delta = detail::subtract(
+                clusters[second_cluster_index].center,
+                clusters[first_cluster_index].center
+            );
+            if (detail::length(delta) <= (cluster_radius * 2.0F)) {
+                continue;
+            }
+
+            const mesh::Vec3 direction = detail::normalize(delta);
+            bool matches_all_selected = true;
+            for (const std::uint32_t face_index : selected_faces) {
+                if (face_index >= faces.size()) {
+                    continue;
+                }
+                if (!lineMatchesNormalTarget(
+                        faces[face_index],
+                        clusters[first_cluster_index].center,
+                        direction,
+                        tolerance,
+                        include_inverse_normals
+                    )) {
+                    matches_all_selected = false;
+                    break;
+                }
+            }
+
+            if (matches_all_selected) {
+                return LineTarget{
+                    .valid = true,
+                    .point = clusters[first_cluster_index].center,
+                    .direction = direction,
+                };
+            }
+        }
+    }
+
+    return {};
+}
+
 }  // namespace
 
 void ViewportRenderer::updateHighlightBuffers() {
@@ -121,6 +544,21 @@ void ViewportRenderer::updateHighlightBuffers() {
     }
     selected_face_vertex_count_ = static_cast<std::uint32_t>(face_vertices.size());
     upload_highlight_geometry(selected_face_vertex_array_, selected_face_vertex_buffer_, face_vertices);
+
+    std::vector<HighlightVertex> preview_face_vertices;
+    preview_face_vertices.reserve(preview_face_indices_.size() * 3ULL);
+    for (const std::uint32_t triangle_index : preview_face_indices_) {
+        if (triangle_index >= normalized_triangles_.size()) {
+            continue;
+        }
+
+        const mesh::Triangle& triangle = normalized_triangles_[triangle_index];
+        preview_face_vertices.push_back(HighlightVertex{{normalized_positions_[triangle.a].x, normalized_positions_[triangle.a].y, normalized_positions_[triangle.a].z}});
+        preview_face_vertices.push_back(HighlightVertex{{normalized_positions_[triangle.b].x, normalized_positions_[triangle.b].y, normalized_positions_[triangle.b].z}});
+        preview_face_vertices.push_back(HighlightVertex{{normalized_positions_[triangle.c].x, normalized_positions_[triangle.c].y, normalized_positions_[triangle.c].z}});
+    }
+    preview_face_vertex_count_ = static_cast<std::uint32_t>(preview_face_vertices.size());
+    upload_highlight_geometry(preview_face_vertex_array_, preview_face_vertex_buffer_, preview_face_vertices);
 
     std::vector<HighlightVertex> edge_vertices;
     edge_vertices.reserve(selected_edge_indices_.size() * 2ULL);
@@ -594,6 +1032,7 @@ void ViewportRenderer::clearSelection() {
     selected_edge_indices_.clear();
     selected_face_indices_.clear();
     selected_point_indices_.clear();
+    preview_face_indices_.clear();
     face_selection_anchor_.reset();
     edge_selection_anchor_.reset();
     selection_summary_ = SelectionSummary{};
@@ -623,6 +1062,228 @@ void ViewportRenderer::setSelection(mesh::EntitySelection selection) {
         .face_count = selected_face_indices_.size(),
         .point_count = selected_point_indices_.size(),
     };
+    updateHighlightBuffers();
+}
+
+ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelection(const ExpandSelectionParams& params) const {
+    ExpandSelectionResult result;
+    result.selection = currentSelection();
+
+    if (!has_document_mesh_ || normalized_positions_.empty() || normalized_triangles_.empty()) {
+        result.unavailable_reasons.push_back("No mesh is available for expansion.");
+        return result;
+    }
+
+    if (selected_face_indices_.empty()) {
+        result.unavailable_reasons.push_back("Select at least one face.");
+        return result;
+    }
+
+    const std::vector<FaceAnalysis> faces = buildFaceAnalysis(normalized_positions_, normalized_triangles_);
+    const float model_diagonal = std::max(modelDiagonalLength(normalized_positions_), 0.0001F);
+
+    switch (params.method) {
+        case ExpandSelectionMethod::Coplanar: {
+            const float tolerance_distance =
+                model_diagonal * std::max(params.coplanar_tolerance_percent, 0.0F) * 0.01F;
+            const float normal_alignment_tolerance =
+                std::max(params.coplanar_tolerance_percent * 0.01F, 1.0e-5F);
+            std::vector<std::uint32_t> expanded_faces = selected_face_indices_;
+            if (params.coplanar_select_adjacent_only) {
+                std::deque<std::uint32_t> frontier(selected_face_indices_.begin(), selected_face_indices_.end());
+                while (!frontier.empty()) {
+                    const std::uint32_t current_face_index = frontier.front();
+                    frontier.pop_front();
+                    if (current_face_index >= face_neighbors_.size() || current_face_index >= faces.size()) {
+                        continue;
+                    }
+
+                    for (const std::uint32_t neighbor_face_index : face_neighbors_[current_face_index]) {
+                        if (neighbor_face_index >= faces.size() || containsIndex(expanded_faces, neighbor_face_index)) {
+                            continue;
+                        }
+
+                        if (!facesMatchCoplanar(
+                                faces[neighbor_face_index],
+                                faces[current_face_index],
+                                tolerance_distance,
+                                normal_alignment_tolerance,
+                                params.coplanar_include_parallel
+                            )) {
+                            continue;
+                        }
+
+                        expanded_faces.push_back(neighbor_face_index);
+                        frontier.push_back(neighbor_face_index);
+                    }
+                }
+            } else {
+                for (std::size_t face_index = 0; face_index < faces.size(); ++face_index) {
+                    for (const std::uint32_t selected_face_index : selected_face_indices_) {
+                        if (selected_face_index >= faces.size()) {
+                            continue;
+                        }
+
+                        if (!facesMatchCoplanar(
+                                faces[face_index],
+                                faces[selected_face_index],
+                                tolerance_distance,
+                                normal_alignment_tolerance,
+                                params.coplanar_include_parallel
+                            )) {
+                            continue;
+                        }
+
+                        expanded_faces.push_back(static_cast<std::uint32_t>(face_index));
+                        break;
+                    }
+                }
+            }
+
+            result.available = true;
+            result.selection = makeExpandedFaceSelection(currentSelection(), std::move(expanded_faces), normalized_triangles_.size());
+            result.preview_face_indices = collectPreviewFaces(selected_face_indices_, result.selection.face_indices);
+            return result;
+        }
+        case ExpandSelectionMethod::Adjacent: {
+            const float max_angle_radians =
+                std::max(params.adjacent_max_angle_degrees, 0.0F) * (3.14159265358979323846F / 180.0F);
+            const float min_dot = std::cos(max_angle_radians);
+
+            std::vector<std::uint32_t> expanded_faces = selected_face_indices_;
+            std::deque<std::uint32_t> frontier(selected_face_indices_.begin(), selected_face_indices_.end());
+            while (!frontier.empty()) {
+                const std::uint32_t current_face_index = frontier.front();
+                frontier.pop_front();
+                if (current_face_index >= face_neighbors_.size() || current_face_index >= faces.size()) {
+                    continue;
+                }
+
+                for (const std::uint32_t neighbor_face_index : face_neighbors_[current_face_index]) {
+                    if (neighbor_face_index >= faces.size() || containsIndex(expanded_faces, neighbor_face_index)) {
+                        continue;
+                    }
+
+                    const float normal_dot = detail::dot(faces[current_face_index].normal, faces[neighbor_face_index].normal);
+                    if (normal_dot < min_dot) {
+                        continue;
+                    }
+
+                    expanded_faces.push_back(neighbor_face_index);
+                    frontier.push_back(neighbor_face_index);
+                }
+            }
+
+            result.available = true;
+            result.selection = makeExpandedFaceSelection(currentSelection(), std::move(expanded_faces), normalized_triangles_.size());
+            result.preview_face_indices = collectPreviewFaces(selected_face_indices_, result.selection.face_indices);
+            return result;
+        }
+        case ExpandSelectionMethod::IntersectingNormals: {
+            if (selected_face_indices_.size() < 2U) {
+                result.unavailable_reasons.push_back("Select at least 2 faces to define a target.");
+                return result;
+            }
+
+            const float tolerance = std::max(params.intersecting_tolerance, 0.0001F);
+            const float max_target_distance = model_diagonal * 10.0F;
+            const PointTarget point_target = findCommonPointTarget(
+                faces,
+                selected_face_indices_,
+                tolerance,
+                params.intersecting_include_inverse_normals,
+                max_target_distance
+            );
+
+            result.linear_intersection_enabled =
+                selected_face_indices_.size() >= 4U && !point_target.valid;
+
+            if (point_target.valid && params.intersecting_allow_linear_intersection) {
+                result.unavailable_reasons.push_back("Linear intersection is only available when no common point target exists.");
+                return result;
+            }
+
+            if (point_target.valid) {
+                std::vector<std::uint32_t> expanded_faces = selected_face_indices_;
+                for (std::size_t face_index = 0; face_index < faces.size(); ++face_index) {
+                    if (pointMatchesNormalTarget(
+                            faces[face_index],
+                            point_target.point,
+                            tolerance,
+                            params.intersecting_include_inverse_normals
+                        )) {
+                        expanded_faces.push_back(static_cast<std::uint32_t>(face_index));
+                    }
+                }
+
+                result.available = true;
+                result.selection = makeExpandedFaceSelection(currentSelection(), std::move(expanded_faces), normalized_triangles_.size());
+                result.preview_face_indices = collectPreviewFaces(selected_face_indices_, result.selection.face_indices);
+                return result;
+            }
+
+            if (point_target.too_far) {
+                result.unavailable_reasons.push_back("The shared target is farther than 10x the part bounds.");
+            } else {
+                result.unavailable_reasons.push_back("Selected face normals do not share a common target within tolerance.");
+            }
+
+            if (!params.intersecting_allow_linear_intersection) {
+                if (selected_face_indices_.size() < 4U) {
+                    result.unavailable_reasons.push_back("Linear intersection requires at least 4 selected faces.");
+                }
+                return result;
+            }
+
+            if (selected_face_indices_.size() < 4U) {
+                result.unavailable_reasons.push_back("Linear intersection requires at least 4 selected faces.");
+                return result;
+            }
+
+            const LineTarget line_target = findCommonLineTarget(
+                faces,
+                selected_face_indices_,
+                tolerance,
+                params.intersecting_include_inverse_normals,
+                max_target_distance
+            );
+            if (!line_target.valid) {
+                result.unavailable_reasons.push_back("Selected face normals do not define a stable line target.");
+                return result;
+            }
+
+            std::vector<std::uint32_t> expanded_faces = selected_face_indices_;
+            for (std::size_t face_index = 0; face_index < faces.size(); ++face_index) {
+                if (lineMatchesNormalTarget(
+                        faces[face_index],
+                        line_target.point,
+                        line_target.direction,
+                        tolerance,
+                        params.intersecting_include_inverse_normals
+                    )) {
+                    expanded_faces.push_back(static_cast<std::uint32_t>(face_index));
+                }
+            }
+
+            result.available = true;
+            result.selection = makeExpandedFaceSelection(currentSelection(), std::move(expanded_faces), normalized_triangles_.size());
+            result.preview_face_indices = collectPreviewFaces(selected_face_indices_, result.selection.face_indices);
+            result.unavailable_reasons.clear();
+            return result;
+        }
+    }
+
+    return result;
+}
+
+void ViewportRenderer::setExpandSelectionPreview(std::vector<std::uint32_t> face_indices) {
+    normalizeSelectionIndices(face_indices, normalized_triangles_.size());
+    preview_face_indices_ = std::move(face_indices);
+    updateHighlightBuffers();
+}
+
+void ViewportRenderer::clearExpandSelectionPreview() {
+    preview_face_indices_.clear();
     updateHighlightBuffers();
 }
 

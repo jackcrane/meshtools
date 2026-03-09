@@ -34,10 +34,13 @@ class EditorApplication {
     void loadProjectDocument(const std::filesystem::path& path);
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
     void handleEntitySetActions(const ui::EditorUiActions& actions);
+    void handleExpandSelectionActions(const ui::EditorUiActions& actions);
     void handleInvertSelectionRequest();
     void handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request);
     void createEntitySetFromCurrentSelection();
+    void createEntitySetFromSelection(mesh::EntitySelection selection);
     void addCurrentSelectionToEntitySet(std::size_t index);
+    void addSelectionToEntitySet(std::size_t index, mesh::EntitySelection selection);
     void selectEntitySet(std::size_t index);
     [[nodiscard]] std::string makeDefaultEntitySetName() const;
 
@@ -49,6 +52,8 @@ class EditorApplication {
     std::filesystem::path active_project_path_;
     std::optional<std::size_t> selected_entity_set_index_;
     std::vector<std::string> log_messages_;
+    std::vector<std::string> expand_selection_feedback_reasons_;
+    ui::EditorUiState::ExpandSelectionFeedback expand_selection_feedback_{};
     ui::ViewportCameraInput pending_viewport_camera_input_;
 };
 

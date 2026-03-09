@@ -80,6 +80,34 @@ void appendUniqueIndices(std::vector<std::uint32_t>& target, const std::vector<s
     sortAndUnique(target);
 }
 
+render::ViewportRenderer::ExpandSelectionParams makeExpandSelectionParams(
+    const ui::EditorUiActions::ExpandSelectionConfig& config
+) {
+    render::ViewportRenderer::ExpandSelectionMethod method = render::ViewportRenderer::ExpandSelectionMethod::Coplanar;
+    switch (config.method) {
+        case ui::ExpandSelectionMethod::Coplanar:
+            method = render::ViewportRenderer::ExpandSelectionMethod::Coplanar;
+            break;
+        case ui::ExpandSelectionMethod::Adjacent:
+            method = render::ViewportRenderer::ExpandSelectionMethod::Adjacent;
+            break;
+        case ui::ExpandSelectionMethod::IntersectingNormals:
+            method = render::ViewportRenderer::ExpandSelectionMethod::IntersectingNormals;
+            break;
+    }
+
+    return render::ViewportRenderer::ExpandSelectionParams{
+        .method = method,
+        .coplanar_include_parallel = config.coplanar_include_parallel,
+        .coplanar_select_adjacent_only = config.coplanar_select_adjacent_only,
+        .coplanar_tolerance_percent = config.coplanar_tolerance_percent,
+        .adjacent_max_angle_degrees = config.adjacent_max_angle_degrees,
+        .intersecting_include_inverse_normals = config.intersecting_include_inverse_normals,
+        .intersecting_tolerance = config.intersecting_tolerance,
+        .intersecting_allow_linear_intersection = config.intersecting_allow_linear_intersection,
+    };
+}
+
 }  // namespace
 
 EditorApplication::EditorApplication(AppConfig config)
@@ -150,6 +178,14 @@ int EditorApplication::run() {
                 .face_count = viewport_renderer_.selectionSummary().face_count,
                 .point_count = viewport_renderer_.selectionSummary().point_count,
             },
+            .expand_selection_feedback = ui::EditorUiState::ExpandSelectionFeedback{
+                .available = expand_selection_feedback_.available,
+                .linear_intersection_enabled = expand_selection_feedback_.linear_intersection_enabled,
+                .preview_total_count = expand_selection_feedback_.preview_total_count,
+                .preview_face_count = expand_selection_feedback_.preview_face_count,
+                .preview_added_face_count = expand_selection_feedback_.preview_added_face_count,
+                .unavailable_reasons = expand_selection_feedback_reasons_,
+            },
         };
         const ui::EditorUiActions actions = editor_ui_.draw(ui_state);
         editor_ui_.endFrame(window_.nativeHandle());
@@ -163,6 +199,7 @@ int EditorApplication::run() {
         if (actions.request_invert_selection) {
             handleInvertSelectionRequest();
         }
+        handleExpandSelectionActions(actions);
         handleEntitySetActions(actions);
 
         if (actions.request_open_document) {
@@ -281,10 +318,13 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
 
     active_document_ = std::move(result.document);
     viewport_renderer_.clearSelection();
+    viewport_renderer_.clearExpandSelectionPreview();
     active_document_->display_name_override.clear();
     active_document_->up_axis = editor_ui_.fileImportSettings().up_axis;
     active_project_path_.clear();
     selected_entity_set_index_.reset();
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
     appendLog(
         "IMPORT",
         "Loaded " + active_document_->displayName() +
@@ -303,9 +343,12 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
 
     active_document_ = std::move(result.document);
     viewport_renderer_.clearSelection();
+    viewport_renderer_.clearExpandSelectionPreview();
     active_project_path_ = path;
     selected_entity_set_index_.reset();
     log_messages_ = std::move(result.log_messages);
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
     appendLog(
         "PROJECT",
         "Opened " + active_document_->displayName() +
@@ -425,12 +468,86 @@ void EditorApplication::handleEntitySetActions(const ui::EditorUiActions& action
     }
 }
 
+void EditorApplication::handleExpandSelectionActions(const ui::EditorUiActions& actions) {
+    if (!active_document_.has_value()) {
+        expand_selection_feedback_reasons_.clear();
+        expand_selection_feedback_ = {};
+        viewport_renderer_.clearExpandSelectionPreview();
+        return;
+    }
+
+    if (!actions.request_expand_selection.has_value()) {
+        if (!actions.expand_selection_dialog_open) {
+            expand_selection_feedback_reasons_.clear();
+            expand_selection_feedback_ = {};
+            viewport_renderer_.clearExpandSelectionPreview();
+        }
+        return;
+    }
+
+    const render::ViewportRenderer::ExpandSelectionResult result =
+        viewport_renderer_.evaluateExpandSelection(makeExpandSelectionParams(actions.request_expand_selection->config));
+
+    expand_selection_feedback_reasons_ = result.unavailable_reasons;
+    expand_selection_feedback_ = ui::EditorUiState::ExpandSelectionFeedback{
+        .available = result.available,
+        .linear_intersection_enabled = result.linear_intersection_enabled,
+        .preview_total_count = result.selection.totalCount(),
+        .preview_face_count = result.selection.face_indices.size(),
+        .preview_added_face_count = result.preview_face_indices.size(),
+        .unavailable_reasons = expand_selection_feedback_reasons_,
+    };
+    viewport_renderer_.setExpandSelectionPreview(result.preview_face_indices);
+
+    if (actions.request_expand_selection->intent == ui::EditorUiActions::ExpandSelectionRequest::Intent::Preview) {
+        return;
+    }
+
+    if (!result.available) {
+        if (!result.unavailable_reasons.empty()) {
+            appendLog("SELECTION", "Expand selection unavailable: " + result.unavailable_reasons.front());
+        } else {
+            appendLog("SELECTION", "Expand selection unavailable.");
+        }
+        return;
+    }
+
+    switch (actions.request_expand_selection->intent) {
+        case ui::EditorUiActions::ExpandSelectionRequest::Intent::Preview:
+            return;
+        case ui::EditorUiActions::ExpandSelectionRequest::Intent::Select:
+            viewport_renderer_.setSelection(result.selection);
+            selected_entity_set_index_.reset();
+            appendLog("SELECTION", "Expanded selection to (" + std::to_string(result.selection.totalCount()) + ") entities.");
+            break;
+        case ui::EditorUiActions::ExpandSelectionRequest::Intent::CreateEntitySet:
+            createEntitySetFromSelection(result.selection);
+            break;
+        case ui::EditorUiActions::ExpandSelectionRequest::Intent::AddToExistingEntitySet:
+            if (actions.request_expand_selection->entity_set_index.has_value()) {
+                addSelectionToEntitySet(*actions.request_expand_selection->entity_set_index, result.selection);
+            }
+            break;
+    }
+
+    viewport_renderer_.clearExpandSelectionPreview();
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
+}
+
 void EditorApplication::createEntitySetFromCurrentSelection() {
     if (!active_document_.has_value()) {
         return;
     }
 
-    mesh::EntitySelection selection = viewport_renderer_.currentSelection();
+    createEntitySetFromSelection(viewport_renderer_.currentSelection());
+}
+
+void EditorApplication::createEntitySetFromSelection(mesh::EntitySelection selection) {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
     normalizeEntitySelection(selection);
     if (selection.empty()) {
         appendLog("ENTITYSET", "Create skipped because nothing is selected.");
@@ -454,7 +571,14 @@ void EditorApplication::addCurrentSelectionToEntitySet(std::size_t index) {
         return;
     }
 
-    mesh::EntitySelection selection = viewport_renderer_.currentSelection();
+    addSelectionToEntitySet(index, viewport_renderer_.currentSelection());
+}
+
+void EditorApplication::addSelectionToEntitySet(std::size_t index, mesh::EntitySelection selection) {
+    if (!active_document_.has_value() || index >= active_document_->entity_sets.size()) {
+        return;
+    }
+
     normalizeEntitySelection(selection);
     if (selection.empty()) {
         appendLog("ENTITYSET", "Add skipped because nothing is selected.");

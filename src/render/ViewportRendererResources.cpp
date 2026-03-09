@@ -144,6 +144,13 @@ void ViewportRenderer::ensureHighlightResources() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(HighlightVertex), reinterpret_cast<const void*>(offsetof(HighlightVertex, position)));
 
+    glGenVertexArrays(1, &preview_face_vertex_array_);
+    glGenBuffers(1, &preview_face_vertex_buffer_);
+    glBindVertexArray(preview_face_vertex_array_);
+    glBindBuffer(GL_ARRAY_BUFFER, preview_face_vertex_buffer_);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(HighlightVertex), reinterpret_cast<const void*>(offsetof(HighlightVertex, position)));
+
     glGenVertexArrays(1, &selected_edge_vertex_array_);
     glGenBuffers(1, &selected_edge_vertex_buffer_);
     glBindVertexArray(selected_edge_vertex_array_);
