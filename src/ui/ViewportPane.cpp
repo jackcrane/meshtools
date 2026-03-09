@@ -16,7 +16,17 @@ constexpr float kOverlayGroupGap = 8.0F;
 constexpr float kOverlayPadding = 10.0F;
 constexpr float kSelectionDragThreshold = 4.0F;
 
-bool isCmdOrCtrlHeld(const ImGuiIO& io) {
+bool isCmdOrCtrlHeld(GLFWwindow* window, const ImGuiIO& io) {
+    if (window != nullptr) {
+#if defined(__APPLE__)
+        return glfwGetKey(window, GLFW_KEY_LEFT_SUPER) == GLFW_PRESS ||
+               glfwGetKey(window, GLFW_KEY_RIGHT_SUPER) == GLFW_PRESS;
+#else
+        return glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+               glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+#endif
+    }
+
 #if defined(__APPLE__)
     return io.KeySuper;
 #else
@@ -230,15 +240,18 @@ void ViewportPane::draw(
                     std::clamp((std::max(drag_selection_.start.x, drag_selection_.current.x) - viewport_rect_min.x) / std::max(render_size_.x, 1.0F), 0.0F, 1.0F);
                 actions->viewport_selection.normalized_max_y =
                     std::clamp((std::max(drag_selection_.start.y, drag_selection_.current.y) - viewport_rect_min.y) / std::max(render_size_.y, 1.0F), 0.0F, 1.0F);
+                actions->viewport_selection.toggle_existing = drag_selection_.toggle_existing;
             } else {
                 actions->viewport_selection.type = ViewportSelectionRequest::Type::Click;
                 actions->viewport_selection.normalized_x =
                     std::clamp((drag_selection_.current.x - viewport_rect_min.x) / std::max(render_size_.x, 1.0F), 0.0F, 1.0F);
                 actions->viewport_selection.normalized_y =
                     std::clamp((drag_selection_.current.y - viewport_rect_min.y) / std::max(render_size_.y, 1.0F), 0.0F, 1.0F);
+                actions->viewport_selection.toggle_existing = drag_selection_.toggle_existing;
             }
 
             drag_selection_.active = false;
+            drag_selection_.toggle_existing = false;
         }
     }
 
@@ -257,6 +270,7 @@ void ViewportPane::draw(
 
         if (viewport_left_clicked && !mouse_over_controls) {
             drag_selection_.active = true;
+            drag_selection_.toggle_existing = isCmdOrCtrlHeld(window_, io);
             drag_selection_.start = clampToRect(io.MousePos, viewport_rect_min, viewport_rect_max);
             drag_selection_.current = drag_selection_.start;
         }
@@ -268,7 +282,7 @@ void ViewportPane::draw(
 
         const bool pan_with_modifier =
             (viewport_control_settings.pan_modifier == PanModifier::Shift && io.KeyShift) ||
-            (viewport_control_settings.pan_modifier == PanModifier::CmdOrCtrl && isCmdOrCtrlHeld(io));
+            (viewport_control_settings.pan_modifier == PanModifier::CmdOrCtrl && isCmdOrCtrlHeld(window_, io));
         const bool pan_with_right_click_only =
             viewport_control_settings.pan_modifier == PanModifier::RightClick;
 

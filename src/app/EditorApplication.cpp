@@ -303,12 +303,17 @@ void EditorApplication::handleViewportSelectionRequest(const ui::ViewportSelecti
         .faces = selection_filters.faces,
         .points = selection_filters.points,
     };
+    const render::ViewportRenderer::SelectionMode selection_mode =
+        request.toggle_existing
+            ? render::ViewportRenderer::SelectionMode::Toggle
+            : render::ViewportRenderer::SelectionMode::Replace;
     std::size_t selection_count = 0;
     if (request.type == ui::ViewportSelectionRequest::Type::Click) {
         selection_count = viewport_renderer_.selectAt(
             request.normalized_x,
             request.normalized_y,
-            selection_query
+            selection_query,
+            selection_mode
         );
     } else if (request.type == ui::ViewportSelectionRequest::Type::Box) {
         selection_count = viewport_renderer_.selectInRect(
@@ -316,7 +321,8 @@ void EditorApplication::handleViewportSelectionRequest(const ui::ViewportSelecti
             request.normalized_min_y,
             request.normalized_max_x,
             request.normalized_max_y,
-            selection_query
+            selection_query,
+            selection_mode
         );
     }
 

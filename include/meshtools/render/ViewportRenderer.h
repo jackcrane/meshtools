@@ -12,6 +12,11 @@ namespace meshtools::render {
 
 class ViewportRenderer {
   public:
+    enum class SelectionMode {
+        Replace,
+        Toggle,
+    };
+
     struct SelectionQuery {
         bool edges = false;
         bool faces = false;
@@ -63,13 +68,19 @@ class ViewportRenderer {
     void pan(float delta_x, float delta_y);
     void zoom(float delta);
     void resetCamera();
-    [[nodiscard]] std::size_t selectAt(float normalized_x, float normalized_y, const SelectionQuery& selection_query);
+    [[nodiscard]] std::size_t selectAt(
+        float normalized_x,
+        float normalized_y,
+        const SelectionQuery& selection_query,
+        SelectionMode selection_mode = SelectionMode::Replace
+    );
     [[nodiscard]] std::size_t selectInRect(
         float normalized_min_x,
         float normalized_min_y,
         float normalized_max_x,
         float normalized_max_y,
-        const SelectionQuery& selection_query
+        const SelectionQuery& selection_query,
+        SelectionMode selection_mode = SelectionMode::Replace
     );
     void clearSelection();
 

@@ -992,19 +992,32 @@ void ViewportRenderer::resetCamera() {
     camera_ = CameraState{};
 }
 
-std::size_t ViewportRenderer::selectAt(float normalized_x, float normalized_y, const SelectionQuery& selection_query) {
+std::size_t ViewportRenderer::selectAt(
+    float normalized_x,
+    float normalized_y,
+    const SelectionQuery& selection_query,
+    SelectionMode selection_mode
+) {
     if (!has_document_mesh_ ||
         normalized_positions_.empty() ||
         normalized_triangles_.empty() ||
         framebuffer_width_ <= 0 ||
         framebuffer_height_ <= 0) {
-        clearSelection();
-        return 0;
+        if (selection_mode == SelectionMode::Replace) {
+            clearSelection();
+            return 0;
+        }
+
+        return selection_summary_.totalCount();
     }
 
     if (!selection_query.edges && !selection_query.faces && !selection_query.points) {
-        clearSelection();
-        return 0;
+        if (selection_mode == SelectionMode::Replace) {
+            clearSelection();
+            return 0;
+        }
+
+        return selection_summary_.totalCount();
     }
 
     const float aspect_ratio = static_cast<float>(framebuffer_width_) / static_cast<float>(framebuffer_height_);
@@ -1067,21 +1080,46 @@ std::size_t ViewportRenderer::selectAt(float normalized_x, float normalized_y, c
     }
 
     if (!std::isfinite(front_t)) {
-        clearSelection();
-        return 0;
+        if (selection_mode == SelectionMode::Replace) {
+            clearSelection();
+            return 0;
+        }
+
+        return selection_summary_.totalCount();
     }
 
-    selected_face_indices_.clear();
-    selected_edge_indices_.clear();
-    selected_point_indices_.clear();
+    std::vector<std::uint32_t> clicked_face_indices;
+    std::vector<std::uint32_t> clicked_edge_indices;
+    std::vector<std::uint32_t> clicked_point_indices;
     if (face_selectable && std::abs(front_face_hit.t - front_t) <= kSelectionDepthTolerance) {
-        selected_face_indices_.push_back(front_face_hit.index);
+        clicked_face_indices.push_back(front_face_hit.index);
     }
     if (edge_hit.hit && std::abs(edge_hit.t - front_t) <= kSelectionDepthTolerance) {
-        selected_edge_indices_.push_back(edge_hit.index);
+        clicked_edge_indices.push_back(edge_hit.index);
     }
     if (point_hit.hit && std::abs(point_hit.t - front_t) <= kSelectionDepthTolerance) {
-        selected_point_indices_.push_back(point_hit.index);
+        clicked_point_indices.push_back(point_hit.index);
+    }
+
+    if (selection_mode == SelectionMode::Replace) {
+        selected_face_indices_ = std::move(clicked_face_indices);
+        selected_edge_indices_ = std::move(clicked_edge_indices);
+        selected_point_indices_ = std::move(clicked_point_indices);
+    } else {
+        auto toggle_indices = [](std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
+            for (const std::uint32_t hit_index : hits) {
+                const auto existing = std::find(target.begin(), target.end(), hit_index);
+                if (existing != target.end()) {
+                    target.erase(existing);
+                } else {
+                    target.push_back(hit_index);
+                }
+            }
+        };
+
+        toggle_indices(selected_face_indices_, clicked_face_indices);
+        toggle_indices(selected_edge_indices_, clicked_edge_indices);
+        toggle_indices(selected_point_indices_, clicked_point_indices);
     }
 
     selection_summary_ = SelectionSummary{
@@ -1098,20 +1136,29 @@ std::size_t ViewportRenderer::selectInRect(
     float normalized_min_y,
     float normalized_max_x,
     float normalized_max_y,
-    const SelectionQuery& selection_query
+    const SelectionQuery& selection_query,
+    SelectionMode selection_mode
 ) {
     if (!has_document_mesh_ ||
         normalized_positions_.empty() ||
         normalized_triangles_.empty() ||
         framebuffer_width_ <= 0 ||
         framebuffer_height_ <= 0) {
-        clearSelection();
-        return 0;
+        if (selection_mode == SelectionMode::Replace) {
+            clearSelection();
+            return 0;
+        }
+
+        return selection_summary_.totalCount();
     }
 
     if (!selection_query.edges && !selection_query.faces && !selection_query.points) {
-        clearSelection();
-        return 0;
+        if (selection_mode == SelectionMode::Replace) {
+            clearSelection();
+            return 0;
+        }
+
+        return selection_summary_.totalCount();
     }
 
     const float min_x = std::clamp(std::min(normalized_min_x, normalized_max_x), 0.0F, 1.0F);
@@ -1121,9 +1168,9 @@ std::size_t ViewportRenderer::selectInRect(
     const float aspect_ratio = static_cast<float>(framebuffer_width_) / static_cast<float>(framebuffer_height_);
     const CameraData camera_data = makeCameraData(camera_);
 
-    selected_face_indices_.clear();
-    selected_edge_indices_.clear();
-    selected_point_indices_.clear();
+    std::vector<std::uint32_t> box_face_indices;
+    std::vector<std::uint32_t> box_edge_indices;
+    std::vector<std::uint32_t> box_point_indices;
 
     if (selection_query.faces) {
         for (std::size_t triangle_index = 0; triangle_index < normalized_triangles_.size(); ++triangle_index) {
@@ -1172,7 +1219,7 @@ std::size_t ViewportRenderer::selectInRect(
                 continue;
             }
 
-            selected_face_indices_.push_back(static_cast<std::uint32_t>(triangle_index));
+            box_face_indices.push_back(static_cast<std::uint32_t>(triangle_index));
         }
     }
 
@@ -1220,7 +1267,7 @@ std::size_t ViewportRenderer::selectInRect(
                 continue;
             }
 
-            selected_edge_indices_.push_back(static_cast<std::uint32_t>(edge_index));
+            box_edge_indices.push_back(static_cast<std::uint32_t>(edge_index));
         }
     }
 
@@ -1250,8 +1297,29 @@ std::size_t ViewportRenderer::selectInRect(
                 continue;
             }
 
-            selected_point_indices_.push_back(static_cast<std::uint32_t>(point_index));
+            box_point_indices.push_back(static_cast<std::uint32_t>(point_index));
         }
+    }
+
+    if (selection_mode == SelectionMode::Replace) {
+        selected_face_indices_ = std::move(box_face_indices);
+        selected_edge_indices_ = std::move(box_edge_indices);
+        selected_point_indices_ = std::move(box_point_indices);
+    } else {
+        auto toggle_indices = [](std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
+            for (const std::uint32_t hit_index : hits) {
+                const auto existing = std::find(target.begin(), target.end(), hit_index);
+                if (existing != target.end()) {
+                    target.erase(existing);
+                } else {
+                    target.push_back(hit_index);
+                }
+            }
+        };
+
+        toggle_indices(selected_face_indices_, box_face_indices);
+        toggle_indices(selected_edge_indices_, box_edge_indices);
+        toggle_indices(selected_point_indices_, box_point_indices);
     }
 
     selection_summary_ = SelectionSummary{

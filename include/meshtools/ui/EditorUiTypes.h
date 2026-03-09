@@ -94,6 +94,7 @@ struct ViewportSelectionRequest {
     float normalized_min_y = 0.0F;
     float normalized_max_x = 0.0F;
     float normalized_max_y = 0.0F;
+    bool toggle_existing = false;
 };
 
 struct EditorUiLogEvent {
