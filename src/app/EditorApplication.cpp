@@ -293,20 +293,33 @@ void EditorApplication::applyViewportCameraInput(const ui::ViewportCameraInput& 
 }
 
 void EditorApplication::handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request) {
-    if (!request.triggered || !active_document_.has_value()) {
+    if (request.type == ui::ViewportSelectionRequest::Type::None || !active_document_.has_value()) {
         return;
     }
 
     const ui::SelectionFilters& selection_filters = editor_ui_.selectionFilters();
-    const std::size_t selection_count = viewport_renderer_.selectAt(
-        request.normalized_x,
-        request.normalized_y,
-        render::ViewportRenderer::SelectionQuery{
-            .edges = selection_filters.edges,
-            .faces = selection_filters.faces,
-            .points = selection_filters.points,
-        }
-    );
+    const render::ViewportRenderer::SelectionQuery selection_query{
+        .edges = selection_filters.edges,
+        .faces = selection_filters.faces,
+        .points = selection_filters.points,
+    };
+    std::size_t selection_count = 0;
+    if (request.type == ui::ViewportSelectionRequest::Type::Click) {
+        selection_count = viewport_renderer_.selectAt(
+            request.normalized_x,
+            request.normalized_y,
+            selection_query
+        );
+    } else if (request.type == ui::ViewportSelectionRequest::Type::Box) {
+        selection_count = viewport_renderer_.selectInRect(
+            request.normalized_min_x,
+            request.normalized_min_y,
+            request.normalized_max_x,
+            request.normalized_max_y,
+            selection_query
+        );
+    }
+
     appendLog("SELECTION", "Selected (" + std::to_string(selection_count) + ") entities");
 }
 

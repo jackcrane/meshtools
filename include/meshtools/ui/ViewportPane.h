@@ -40,6 +40,12 @@ class ViewportPane {
     [[nodiscard]] ImVec2 renderTargetSize(const GraphicsQualitySettings& graphics_quality_settings) const;
 
   private:
+    struct DragSelectionState {
+        bool active = false;
+        ImVec2 start = ImVec2(0.0F, 0.0F);
+        ImVec2 current = ImVec2(0.0F, 0.0F);
+    };
+
     struct SegmentedControlItem {
         const char* label = "";
         const char* tooltip = "";
@@ -57,6 +63,7 @@ class ViewportPane {
     ImVec2 render_size_ = ImVec2(1280.0F, 720.0F);
     ImVec2 framebuffer_scale_ = ImVec2(1.0F, 1.0F);
     std::uint32_t texture_id_ = 0;
+    DragSelectionState drag_selection_{};
 };
 
 }  // namespace meshtools::ui

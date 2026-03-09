@@ -64,6 +64,13 @@ class ViewportRenderer {
     void zoom(float delta);
     void resetCamera();
     [[nodiscard]] std::size_t selectAt(float normalized_x, float normalized_y, const SelectionQuery& selection_query);
+    [[nodiscard]] std::size_t selectInRect(
+        float normalized_min_x,
+        float normalized_min_y,
+        float normalized_max_x,
+        float normalized_max_y,
+        const SelectionQuery& selection_query
+    );
     void clearSelection();
 
     [[nodiscard]] std::uint32_t textureId() const;
@@ -94,12 +101,6 @@ class ViewportRenderer {
 
     struct HighlightVertex {
         float position[3];
-    };
-
-    struct SelectedEntities {
-        std::optional<std::uint32_t> edge_index;
-        std::optional<std::uint32_t> face_index;
-        std::optional<std::uint32_t> point_index;
     };
 
     void ensureFramebuffer(int width, int height);
@@ -140,7 +141,9 @@ class ViewportRenderer {
     std::vector<mesh::Vec3> normalized_positions_;
     std::vector<mesh::Triangle> normalized_triangles_;
     std::vector<Edge> unique_edges_;
-    SelectedEntities selected_entities_{};
+    std::vector<std::uint32_t> selected_edge_indices_;
+    std::vector<std::uint32_t> selected_face_indices_;
+    std::vector<std::uint32_t> selected_point_indices_;
     SelectionSummary selection_summary_{};
     bool has_document_mesh_ = false;
 };

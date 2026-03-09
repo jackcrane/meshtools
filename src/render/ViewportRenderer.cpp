@@ -182,6 +182,18 @@ struct HitCandidate {
     float t = std::numeric_limits<float>::infinity();
 };
 
+struct ProjectedPoint {
+    bool valid = false;
+    float normalized_x = 0.0F;
+    float normalized_y = 0.0F;
+    float view_depth = 0.0F;
+};
+
+struct Vec2 {
+    float x = 0.0F;
+    float y = 0.0F;
+};
+
 mesh::Vec3 add(const mesh::Vec3& left, const mesh::Vec3& right) {
     return mesh::Vec3{
         .x = left.x + right.x,
@@ -649,6 +661,125 @@ std::uint64_t edgeKey(std::uint32_t left, std::uint32_t right) {
     return (static_cast<std::uint64_t>(minimum) << 32U) | static_cast<std::uint64_t>(maximum);
 }
 
+ProjectedPoint projectPointToViewport(
+    const mesh::Vec3& point,
+    const CameraData& camera,
+    float aspect_ratio
+) {
+    const mesh::Vec3 to_point = subtract(point, camera.eye);
+    const float view_x = dot(to_point, camera.right);
+    const float view_y = dot(to_point, camera.up);
+    const float view_z = dot(to_point, camera.forward);
+    if (view_z <= kNearPlane) {
+        return ProjectedPoint{};
+    }
+
+    const float tan_half_fov = std::tan(kVerticalFovRadians * 0.5F);
+    const float ndc_x = view_x / (view_z * tan_half_fov * aspect_ratio);
+    const float ndc_y = view_y / (view_z * tan_half_fov);
+    if (ndc_x < -1.2F || ndc_x > 1.2F || ndc_y < -1.2F || ndc_y > 1.2F) {
+        return ProjectedPoint{};
+    }
+
+    return ProjectedPoint{
+        .valid = true,
+        .normalized_x = (ndc_x + 1.0F) * 0.5F,
+        .normalized_y = (1.0F - ndc_y) * 0.5F,
+        .view_depth = view_z,
+    };
+}
+
+bool pointInNormalizedRect(float x, float y, float min_x, float min_y, float max_x, float max_y) {
+    return x >= min_x && x <= max_x && y >= min_y && y <= max_y;
+}
+
+float cross2d(const Vec2& left, const Vec2& right) {
+    return (left.x * right.y) - (left.y * right.x);
+}
+
+bool segmentsIntersect(const Vec2& a_start, const Vec2& a_end, const Vec2& b_start, const Vec2& b_end) {
+    const Vec2 segment_a{a_end.x - a_start.x, a_end.y - a_start.y};
+    const Vec2 segment_b{b_end.x - b_start.x, b_end.y - b_start.y};
+    const Vec2 offset{b_start.x - a_start.x, b_start.y - a_start.y};
+    const float denominator = cross2d(segment_a, segment_b);
+    if (std::abs(denominator) <= kIntersectionEpsilon) {
+        return false;
+    }
+
+    const float t = cross2d(offset, segment_b) / denominator;
+    const float u = cross2d(offset, segment_a) / denominator;
+    return t >= 0.0F && t <= 1.0F && u >= 0.0F && u <= 1.0F;
+}
+
+bool pointInTriangle2d(const Vec2& point, const Vec2& a, const Vec2& b, const Vec2& c) {
+    const Vec2 ab{b.x - a.x, b.y - a.y};
+    const Vec2 bc{c.x - b.x, c.y - b.y};
+    const Vec2 ca{a.x - c.x, a.y - c.y};
+    const Vec2 ap{point.x - a.x, point.y - a.y};
+    const Vec2 bp{point.x - b.x, point.y - b.y};
+    const Vec2 cp{point.x - c.x, point.y - c.y};
+    const float cross_ab = cross2d(ab, ap);
+    const float cross_bc = cross2d(bc, bp);
+    const float cross_ca = cross2d(ca, cp);
+    const bool has_negative = cross_ab < 0.0F || cross_bc < 0.0F || cross_ca < 0.0F;
+    const bool has_positive = cross_ab > 0.0F || cross_bc > 0.0F || cross_ca > 0.0F;
+    return !(has_negative && has_positive);
+}
+
+bool segmentIntersectsRect(const Vec2& start, const Vec2& end, float min_x, float min_y, float max_x, float max_y) {
+    if (pointInNormalizedRect(start.x, start.y, min_x, min_y, max_x, max_y) ||
+        pointInNormalizedRect(end.x, end.y, min_x, min_y, max_x, max_y)) {
+        return true;
+    }
+
+    const std::array<std::pair<Vec2, Vec2>, 4> rect_edges = {{
+        {Vec2{min_x, min_y}, Vec2{max_x, min_y}},
+        {Vec2{max_x, min_y}, Vec2{max_x, max_y}},
+        {Vec2{max_x, max_y}, Vec2{min_x, max_y}},
+        {Vec2{min_x, max_y}, Vec2{min_x, min_y}},
+    }};
+
+    for (const auto& [edge_start, edge_end] : rect_edges) {
+        if (segmentsIntersect(start, end, edge_start, edge_end)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool triangleIntersectsRect(
+    const Vec2& a,
+    const Vec2& b,
+    const Vec2& c,
+    float min_x,
+    float min_y,
+    float max_x,
+    float max_y
+) {
+    if (pointInNormalizedRect(a.x, a.y, min_x, min_y, max_x, max_y) ||
+        pointInNormalizedRect(b.x, b.y, min_x, min_y, max_x, max_y) ||
+        pointInNormalizedRect(c.x, c.y, min_x, min_y, max_x, max_y)) {
+        return true;
+    }
+
+    const std::array<Vec2, 4> rect_corners = {
+        Vec2{min_x, min_y},
+        Vec2{max_x, min_y},
+        Vec2{max_x, max_y},
+        Vec2{min_x, max_y},
+    };
+    for (const Vec2& corner : rect_corners) {
+        if (pointInTriangle2d(corner, a, b, c)) {
+            return true;
+        }
+    }
+
+    return segmentIntersectsRect(a, b, min_x, min_y, max_x, max_y) ||
+           segmentIntersectsRect(b, c, min_x, min_y, max_x, max_y) ||
+           segmentIntersectsRect(c, a, min_x, min_y, max_x, max_y);
+}
+
 }  // namespace
 
 ViewportRenderer::ViewportRenderer() = default;
@@ -793,7 +924,7 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
 
         if (selected_face_vertex_count_ > 0U) {
             glBindVertexArray(selected_face_vertex_array_);
-            glUniform4f(highlight_color_location, 0.86F, 0.53F, 0.18F, 0.48F);
+            glUniform4f(highlight_color_location, 0.93F, 0.59F, 0.18F, 0.56F);
             glUniform1f(highlight_point_size_location, kSelectionPointSize);
             glUniform1f(highlight_depth_bias_location, kFaceDepthBias);
             glUniform1i(highlight_round_points_location, 0);
@@ -940,28 +1071,202 @@ std::size_t ViewportRenderer::selectAt(float normalized_x, float normalized_y, c
         return 0;
     }
 
-    selected_entities_ = SelectedEntities{};
+    selected_face_indices_.clear();
+    selected_edge_indices_.clear();
+    selected_point_indices_.clear();
     if (face_selectable && std::abs(front_face_hit.t - front_t) <= kSelectionDepthTolerance) {
-        selected_entities_.face_index = front_face_hit.index;
+        selected_face_indices_.push_back(front_face_hit.index);
     }
     if (edge_hit.hit && std::abs(edge_hit.t - front_t) <= kSelectionDepthTolerance) {
-        selected_entities_.edge_index = edge_hit.index;
+        selected_edge_indices_.push_back(edge_hit.index);
     }
     if (point_hit.hit && std::abs(point_hit.t - front_t) <= kSelectionDepthTolerance) {
-        selected_entities_.point_index = point_hit.index;
+        selected_point_indices_.push_back(point_hit.index);
     }
 
     selection_summary_ = SelectionSummary{
-        .edge_count = selected_entities_.edge_index.has_value() ? 1U : 0U,
-        .face_count = selected_entities_.face_index.has_value() ? 1U : 0U,
-        .point_count = selected_entities_.point_index.has_value() ? 1U : 0U,
+        .edge_count = selected_edge_indices_.size(),
+        .face_count = selected_face_indices_.size(),
+        .point_count = selected_point_indices_.size(),
+    };
+    updateHighlightBuffers();
+    return selection_summary_.totalCount();
+}
+
+std::size_t ViewportRenderer::selectInRect(
+    float normalized_min_x,
+    float normalized_min_y,
+    float normalized_max_x,
+    float normalized_max_y,
+    const SelectionQuery& selection_query
+) {
+    if (!has_document_mesh_ ||
+        normalized_positions_.empty() ||
+        normalized_triangles_.empty() ||
+        framebuffer_width_ <= 0 ||
+        framebuffer_height_ <= 0) {
+        clearSelection();
+        return 0;
+    }
+
+    if (!selection_query.edges && !selection_query.faces && !selection_query.points) {
+        clearSelection();
+        return 0;
+    }
+
+    const float min_x = std::clamp(std::min(normalized_min_x, normalized_max_x), 0.0F, 1.0F);
+    const float min_y = std::clamp(std::min(normalized_min_y, normalized_max_y), 0.0F, 1.0F);
+    const float max_x = std::clamp(std::max(normalized_min_x, normalized_max_x), 0.0F, 1.0F);
+    const float max_y = std::clamp(std::max(normalized_min_y, normalized_max_y), 0.0F, 1.0F);
+    const float aspect_ratio = static_cast<float>(framebuffer_width_) / static_cast<float>(framebuffer_height_);
+    const CameraData camera_data = makeCameraData(camera_);
+
+    selected_face_indices_.clear();
+    selected_edge_indices_.clear();
+    selected_point_indices_.clear();
+
+    if (selection_query.faces) {
+        for (std::size_t triangle_index = 0; triangle_index < normalized_triangles_.size(); ++triangle_index) {
+            const mesh::Triangle& triangle = normalized_triangles_[triangle_index];
+            const ProjectedPoint projected_a = projectPointToViewport(normalized_positions_[triangle.a], camera_data, aspect_ratio);
+            const ProjectedPoint projected_b = projectPointToViewport(normalized_positions_[triangle.b], camera_data, aspect_ratio);
+            const ProjectedPoint projected_c = projectPointToViewport(normalized_positions_[triangle.c], camera_data, aspect_ratio);
+            if (!projected_a.valid || !projected_b.valid || !projected_c.valid) {
+                continue;
+            }
+
+            if (!triangleIntersectsRect(
+                    Vec2{projected_a.normalized_x, projected_a.normalized_y},
+                    Vec2{projected_b.normalized_x, projected_b.normalized_y},
+                    Vec2{projected_c.normalized_x, projected_c.normalized_y},
+                    min_x,
+                    min_y,
+                    max_x,
+                    max_y
+                )) {
+                continue;
+            }
+
+            const mesh::Vec3 centroid = scale(
+                add(add(normalized_positions_[triangle.a], normalized_positions_[triangle.b]), normalized_positions_[triangle.c]),
+                1.0F / 3.0F
+            );
+            const ProjectedPoint projected_centroid = projectPointToViewport(centroid, camera_data, aspect_ratio);
+            if (!projected_centroid.valid) {
+                continue;
+            }
+
+            const mesh::Vec3 centroid_ray = makeRayDirection(
+                camera_data,
+                projected_centroid.normalized_x,
+                projected_centroid.normalized_y,
+                aspect_ratio
+            );
+            const HitCandidate face_hit = findNearestTriangleHit(
+                normalized_positions_,
+                normalized_triangles_,
+                camera_data.eye,
+                centroid_ray
+            );
+            if (!face_hit.hit || face_hit.index != triangle_index) {
+                continue;
+            }
+
+            selected_face_indices_.push_back(static_cast<std::uint32_t>(triangle_index));
+        }
+    }
+
+    if (selection_query.edges) {
+        for (std::size_t edge_index = 0; edge_index < unique_edges_.size(); ++edge_index) {
+            const Edge& edge = unique_edges_[edge_index];
+            const ProjectedPoint projected_a = projectPointToViewport(normalized_positions_[edge.a], camera_data, aspect_ratio);
+            const ProjectedPoint projected_b = projectPointToViewport(normalized_positions_[edge.b], camera_data, aspect_ratio);
+            if (!projected_a.valid || !projected_b.valid) {
+                continue;
+            }
+
+            if (!segmentIntersectsRect(
+                    Vec2{projected_a.normalized_x, projected_a.normalized_y},
+                    Vec2{projected_b.normalized_x, projected_b.normalized_y},
+                    min_x,
+                    min_y,
+                    max_x,
+                    max_y
+                )) {
+                continue;
+            }
+
+            const mesh::Vec3 midpoint = scale(add(normalized_positions_[edge.a], normalized_positions_[edge.b]), 0.5F);
+            const ProjectedPoint projected_midpoint = projectPointToViewport(midpoint, camera_data, aspect_ratio);
+            if (!projected_midpoint.valid) {
+                continue;
+            }
+
+            const mesh::Vec3 midpoint_ray = makeRayDirection(
+                camera_data,
+                projected_midpoint.normalized_x,
+                projected_midpoint.normalized_y,
+                aspect_ratio
+            );
+            const HitCandidate face_hit = findNearestTriangleHit(
+                normalized_positions_,
+                normalized_triangles_,
+                camera_data.eye,
+                midpoint_ray
+            );
+            float midpoint_t = 0.0F;
+            distanceToRaySquared(midpoint, camera_data.eye, midpoint_ray, &midpoint_t);
+            if (face_hit.hit && midpoint_t > (face_hit.t + kSelectionDepthTolerance)) {
+                continue;
+            }
+
+            selected_edge_indices_.push_back(static_cast<std::uint32_t>(edge_index));
+        }
+    }
+
+    if (selection_query.points) {
+        for (std::size_t point_index = 0; point_index < normalized_positions_.size(); ++point_index) {
+            const ProjectedPoint projected_point = projectPointToViewport(normalized_positions_[point_index], camera_data, aspect_ratio);
+            if (!projected_point.valid ||
+                !pointInNormalizedRect(projected_point.normalized_x, projected_point.normalized_y, min_x, min_y, max_x, max_y)) {
+                continue;
+            }
+
+            const mesh::Vec3 point_ray = makeRayDirection(
+                camera_data,
+                projected_point.normalized_x,
+                projected_point.normalized_y,
+                aspect_ratio
+            );
+            const HitCandidate face_hit = findNearestTriangleHit(
+                normalized_positions_,
+                normalized_triangles_,
+                camera_data.eye,
+                point_ray
+            );
+            float point_t = 0.0F;
+            distanceToRaySquared(normalized_positions_[point_index], camera_data.eye, point_ray, &point_t);
+            if (face_hit.hit && point_t > (face_hit.t + kSelectionDepthTolerance)) {
+                continue;
+            }
+
+            selected_point_indices_.push_back(static_cast<std::uint32_t>(point_index));
+        }
+    }
+
+    selection_summary_ = SelectionSummary{
+        .edge_count = selected_edge_indices_.size(),
+        .face_count = selected_face_indices_.size(),
+        .point_count = selected_point_indices_.size(),
     };
     updateHighlightBuffers();
     return selection_summary_.totalCount();
 }
 
 void ViewportRenderer::clearSelection() {
-    selected_entities_ = SelectedEntities{};
+    selected_edge_indices_.clear();
+    selected_face_indices_.clear();
+    selected_point_indices_.clear();
     selection_summary_ = SelectionSummary{};
     updateHighlightBuffers();
 }
@@ -1279,37 +1584,43 @@ void ViewportRenderer::updateHighlightBuffers() {
     };
 
     std::vector<HighlightVertex> face_vertices;
-    if (selected_entities_.face_index.has_value() &&
-        *selected_entities_.face_index < normalized_triangles_.size()) {
-        const mesh::Triangle& triangle = normalized_triangles_[*selected_entities_.face_index];
-        face_vertices = {
-            HighlightVertex{{normalized_positions_[triangle.a].x, normalized_positions_[triangle.a].y, normalized_positions_[triangle.a].z}},
-            HighlightVertex{{normalized_positions_[triangle.b].x, normalized_positions_[triangle.b].y, normalized_positions_[triangle.b].z}},
-            HighlightVertex{{normalized_positions_[triangle.c].x, normalized_positions_[triangle.c].y, normalized_positions_[triangle.c].z}},
-        };
+    face_vertices.reserve(selected_face_indices_.size() * 3ULL);
+    for (const std::uint32_t triangle_index : selected_face_indices_) {
+        if (triangle_index >= normalized_triangles_.size()) {
+            continue;
+        }
+
+        const mesh::Triangle& triangle = normalized_triangles_[triangle_index];
+        face_vertices.push_back(HighlightVertex{{normalized_positions_[triangle.a].x, normalized_positions_[triangle.a].y, normalized_positions_[triangle.a].z}});
+        face_vertices.push_back(HighlightVertex{{normalized_positions_[triangle.b].x, normalized_positions_[triangle.b].y, normalized_positions_[triangle.b].z}});
+        face_vertices.push_back(HighlightVertex{{normalized_positions_[triangle.c].x, normalized_positions_[triangle.c].y, normalized_positions_[triangle.c].z}});
     }
     selected_face_vertex_count_ = static_cast<std::uint32_t>(face_vertices.size());
     upload_highlight_geometry(selected_face_vertex_array_, selected_face_vertex_buffer_, face_vertices);
 
     std::vector<HighlightVertex> edge_vertices;
-    if (selected_entities_.edge_index.has_value() &&
-        *selected_entities_.edge_index < unique_edges_.size()) {
-        const Edge& edge = unique_edges_[*selected_entities_.edge_index];
-        edge_vertices = {
-            HighlightVertex{{normalized_positions_[edge.a].x, normalized_positions_[edge.a].y, normalized_positions_[edge.a].z}},
-            HighlightVertex{{normalized_positions_[edge.b].x, normalized_positions_[edge.b].y, normalized_positions_[edge.b].z}},
-        };
+    edge_vertices.reserve(selected_edge_indices_.size() * 2ULL);
+    for (const std::uint32_t edge_index : selected_edge_indices_) {
+        if (edge_index >= unique_edges_.size()) {
+            continue;
+        }
+
+        const Edge& edge = unique_edges_[edge_index];
+        edge_vertices.push_back(HighlightVertex{{normalized_positions_[edge.a].x, normalized_positions_[edge.a].y, normalized_positions_[edge.a].z}});
+        edge_vertices.push_back(HighlightVertex{{normalized_positions_[edge.b].x, normalized_positions_[edge.b].y, normalized_positions_[edge.b].z}});
     }
     selected_edge_vertex_count_ = static_cast<std::uint32_t>(edge_vertices.size());
     upload_highlight_geometry(selected_edge_vertex_array_, selected_edge_vertex_buffer_, edge_vertices);
 
     std::vector<HighlightVertex> point_vertices;
-    if (selected_entities_.point_index.has_value() &&
-        *selected_entities_.point_index < normalized_positions_.size()) {
-        const mesh::Vec3& point = normalized_positions_[*selected_entities_.point_index];
-        point_vertices = {
-            HighlightVertex{{point.x, point.y, point.z}},
-        };
+    point_vertices.reserve(selected_point_indices_.size());
+    for (const std::uint32_t point_index : selected_point_indices_) {
+        if (point_index >= normalized_positions_.size()) {
+            continue;
+        }
+
+        const mesh::Vec3& point = normalized_positions_[point_index];
+        point_vertices.push_back(HighlightVertex{{point.x, point.y, point.z}});
     }
     selected_point_vertex_count_ = static_cast<std::uint32_t>(point_vertices.size());
     upload_highlight_geometry(selected_point_vertex_array_, selected_point_vertex_buffer_, point_vertices);

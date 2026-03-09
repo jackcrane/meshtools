@@ -14,6 +14,7 @@ namespace {
 constexpr ImVec2 kOverlayButtonSize = ImVec2(22.0F, 20.0F);
 constexpr float kOverlayGroupGap = 8.0F;
 constexpr float kOverlayPadding = 10.0F;
+constexpr float kSelectionDragThreshold = 4.0F;
 
 bool isCmdOrCtrlHeld(const ImGuiIO& io) {
 #if defined(__APPLE__)
@@ -28,6 +29,13 @@ bool pointInRect(const ImVec2& point, const ImVec2& minimum, const ImVec2& maxim
            point.x <= maximum.x &&
            point.y >= minimum.y &&
            point.y <= maximum.y;
+}
+
+ImVec2 clampToRect(const ImVec2& point, const ImVec2& minimum, const ImVec2& maximum) {
+    return ImVec2(
+        std::clamp(point.x, minimum.x, maximum.x),
+        std::clamp(point.y, minimum.y, maximum.y)
+    );
 }
 
 }  // namespace
@@ -202,6 +210,38 @@ void ViewportPane::draw(
         actions
     );
 
+    if (actions != nullptr && drag_selection_.active) {
+        ImGuiIO& io = ImGui::GetIO();
+        drag_selection_.current = clampToRect(io.MousePos, viewport_rect_min, viewport_rect_max);
+
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+            const ImVec2 drag_delta = ImVec2(
+                drag_selection_.current.x - drag_selection_.start.x,
+                drag_selection_.current.y - drag_selection_.start.y
+            );
+            const float drag_distance_squared = (drag_delta.x * drag_delta.x) + (drag_delta.y * drag_delta.y);
+            if (drag_distance_squared >= (kSelectionDragThreshold * kSelectionDragThreshold)) {
+                actions->viewport_selection.type = ViewportSelectionRequest::Type::Box;
+                actions->viewport_selection.normalized_min_x =
+                    std::clamp((std::min(drag_selection_.start.x, drag_selection_.current.x) - viewport_rect_min.x) / std::max(render_size_.x, 1.0F), 0.0F, 1.0F);
+                actions->viewport_selection.normalized_min_y =
+                    std::clamp((std::min(drag_selection_.start.y, drag_selection_.current.y) - viewport_rect_min.y) / std::max(render_size_.y, 1.0F), 0.0F, 1.0F);
+                actions->viewport_selection.normalized_max_x =
+                    std::clamp((std::max(drag_selection_.start.x, drag_selection_.current.x) - viewport_rect_min.x) / std::max(render_size_.x, 1.0F), 0.0F, 1.0F);
+                actions->viewport_selection.normalized_max_y =
+                    std::clamp((std::max(drag_selection_.start.y, drag_selection_.current.y) - viewport_rect_min.y) / std::max(render_size_.y, 1.0F), 0.0F, 1.0F);
+            } else {
+                actions->viewport_selection.type = ViewportSelectionRequest::Type::Click;
+                actions->viewport_selection.normalized_x =
+                    std::clamp((drag_selection_.current.x - viewport_rect_min.x) / std::max(render_size_.x, 1.0F), 0.0F, 1.0F);
+                actions->viewport_selection.normalized_y =
+                    std::clamp((drag_selection_.current.y - viewport_rect_min.y) / std::max(render_size_.y, 1.0F), 0.0F, 1.0F);
+            }
+
+            drag_selection_.active = false;
+        }
+    }
+
     if (
         actions != nullptr &&
         viewport_interaction_hovered &&
@@ -216,14 +256,9 @@ void ViewportPane::draw(
             pointInRect(io.MousePos, filter_controls_min, filter_controls_max);
 
         if (viewport_left_clicked && !mouse_over_controls) {
-            const ImVec2 mouse_position = io.MousePos;
-            actions->viewport_selection.triggered = true;
-            actions->viewport_selection.normalized_x =
-                (mouse_position.x - viewport_rect_min.x) / std::max(render_size_.x, 1.0F);
-            actions->viewport_selection.normalized_y =
-                (mouse_position.y - viewport_rect_min.y) / std::max(render_size_.y, 1.0F);
-            actions->viewport_selection.normalized_x = std::clamp(actions->viewport_selection.normalized_x, 0.0F, 1.0F);
-            actions->viewport_selection.normalized_y = std::clamp(actions->viewport_selection.normalized_y, 0.0F, 1.0F);
+            drag_selection_.active = true;
+            drag_selection_.start = clampToRect(io.MousePos, viewport_rect_min, viewport_rect_max);
+            drag_selection_.current = drag_selection_.start;
         }
 
         if (io.MouseWheel != 0.0F) {
@@ -245,6 +280,19 @@ void ViewportPane::draw(
             const float y_direction = viewport_control_settings.invert_y_movement ? -1.0F : 1.0F;
             actions->viewport_camera.orbit_delta.y += io.MouseDelta.y * y_direction;
         }
+    }
+
+    if (drag_selection_.active) {
+        const ImVec2 selection_min = ImVec2(
+            std::min(drag_selection_.start.x, drag_selection_.current.x),
+            std::min(drag_selection_.start.y, drag_selection_.current.y)
+        );
+        const ImVec2 selection_max = ImVec2(
+            std::max(drag_selection_.start.x, drag_selection_.current.x),
+            std::max(drag_selection_.start.y, drag_selection_.current.y)
+        );
+        draw_list->AddRectFilled(selection_min, selection_max, IM_COL32(196, 200, 206, 42));
+        draw_list->AddRect(selection_min, selection_max, IM_COL32(214, 218, 224, 220), 0.0F, 0, 1.5F);
     }
 
     ImGui::End();

@@ -81,9 +81,19 @@ struct ViewportCameraInput {
 };
 
 struct ViewportSelectionRequest {
-    bool triggered = false;
+    enum class Type {
+        None,
+        Click,
+        Box,
+    };
+
+    Type type = Type::None;
     float normalized_x = 0.0F;
     float normalized_y = 0.0F;
+    float normalized_min_x = 0.0F;
+    float normalized_min_y = 0.0F;
+    float normalized_max_x = 0.0F;
+    float normalized_max_y = 0.0F;
 };
 
 struct EditorUiLogEvent {
