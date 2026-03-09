@@ -23,6 +23,13 @@ bool isCmdOrCtrlHeld(const ImGuiIO& io) {
 #endif
 }
 
+bool pointInRect(const ImVec2& point, const ImVec2& minimum, const ImVec2& maximum) {
+    return point.x >= minimum.x &&
+           point.x <= maximum.x &&
+           point.y >= minimum.y &&
+           point.y <= maximum.y;
+}
+
 }  // namespace
 
 ViewportPane::ViewportPane(GLFWwindow* window)
@@ -85,10 +92,17 @@ void ViewportPane::draw(
             ImVec2(1.0F, 0.0F)
         );
     }
-    const bool viewport_image_hovered = ImGui::IsItemHovered();
-
     const ImVec2 viewport_rect_min = ImGui::GetItemRectMin();
     const ImVec2 viewport_rect_max = ImGui::GetItemRectMax();
+    ImGui::SetCursorScreenPos(viewport_rect_min);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton(
+        "viewport_input",
+        render_size_,
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight
+    );
+    const bool viewport_interaction_hovered = ImGui::IsItemHovered();
+    const bool viewport_left_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     const ImVec2 controls_top_right = ImVec2(
@@ -158,6 +172,23 @@ void ViewportPane::draw(
         on_toggle_points();
     }
 
+    const ImVec2 display_controls_min = ImVec2(
+        controls_top_right.x - kOverlayButtonSize.x,
+        controls_top_right.y
+    );
+    const ImVec2 display_controls_max = ImVec2(
+        controls_top_right.x,
+        controls_top_right.y + (static_cast<float>(display_items.size()) * kOverlayButtonSize.y)
+    );
+    const ImVec2 filter_controls_min = ImVec2(
+        filter_top_right.x - kOverlayButtonSize.x,
+        filter_top_right.y
+    );
+    const ImVec2 filter_controls_max = ImVec2(
+        filter_top_right.x,
+        filter_top_right.y + (static_cast<float>(filter_items.size()) * kOverlayButtonSize.y)
+    );
+
     const ViewportGizmoResult gizmo_result = drawViewportGizmo(
         ViewportGizmoConfig{
             .draw_list = draw_list,
@@ -171,8 +202,30 @@ void ViewportPane::draw(
         actions
     );
 
-    if (actions != nullptr && viewport_image_hovered && !gizmo_result.hovered && !gizmo_result.context_open) {
+    if (
+        actions != nullptr &&
+        viewport_interaction_hovered &&
+        clicked_display_item == -1 &&
+        clicked_filter_item == -1 &&
+        !gizmo_result.hovered &&
+        !gizmo_result.context_open
+    ) {
         ImGuiIO& io = ImGui::GetIO();
+        const bool mouse_over_controls =
+            pointInRect(io.MousePos, display_controls_min, display_controls_max) ||
+            pointInRect(io.MousePos, filter_controls_min, filter_controls_max);
+
+        if (viewport_left_clicked && !mouse_over_controls) {
+            const ImVec2 mouse_position = io.MousePos;
+            actions->viewport_selection.triggered = true;
+            actions->viewport_selection.normalized_x =
+                (mouse_position.x - viewport_rect_min.x) / std::max(render_size_.x, 1.0F);
+            actions->viewport_selection.normalized_y =
+                (mouse_position.y - viewport_rect_min.y) / std::max(render_size_.y, 1.0F);
+            actions->viewport_selection.normalized_x = std::clamp(actions->viewport_selection.normalized_x, 0.0F, 1.0F);
+            actions->viewport_selection.normalized_y = std::clamp(actions->viewport_selection.normalized_y, 0.0F, 1.0F);
+        }
+
         if (io.MouseWheel != 0.0F) {
             const float zoom_direction = viewport_control_settings.invert_zoom ? -1.0F : 1.0F;
             actions->viewport_camera.zoom_delta += io.MouseWheel * zoom_direction;

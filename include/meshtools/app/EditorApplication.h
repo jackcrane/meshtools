@@ -33,6 +33,7 @@ class EditorApplication {
     void loadMeshDocument(const std::filesystem::path& path);
     void loadProjectDocument(const std::filesystem::path& path);
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
+    void handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request);
 
     AppConfig config_;
     platform::GlfwWindow window_;

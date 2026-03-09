@@ -110,6 +110,11 @@ int EditorApplication::run() {
             .log_messages = log_messages_,
             .camera_yaw = viewport_renderer_.camera().yaw,
             .camera_pitch = viewport_renderer_.camera().pitch,
+            .selection_summary = ui::EditorUiState::SelectionSummary{
+                .edge_count = viewport_renderer_.selectionSummary().edge_count,
+                .face_count = viewport_renderer_.selectionSummary().face_count,
+                .point_count = viewport_renderer_.selectionSummary().point_count,
+            },
         };
         const ui::EditorUiActions actions = editor_ui_.draw(ui_state);
         editor_ui_.endFrame(window_.nativeHandle());
@@ -119,6 +124,7 @@ int EditorApplication::run() {
         for (const ui::EditorUiLogEvent& event_log : actions.event_logs) {
             appendLog(event_log.origin, event_log.message);
         }
+        handleViewportSelectionRequest(actions.viewport_selection);
 
         if (actions.request_open_document) {
             openDocument();
@@ -235,6 +241,7 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     }
 
     active_document_ = std::move(result.document);
+    viewport_renderer_.clearSelection();
     active_document_->display_name_override.clear();
     active_document_->up_axis = editor_ui_.fileImportSettings().up_axis;
     active_project_path_.clear();
@@ -255,6 +262,7 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
     }
 
     active_document_ = std::move(result.document);
+    viewport_renderer_.clearSelection();
     active_project_path_ = path;
     log_messages_ = std::move(result.log_messages);
     appendLog(
@@ -282,6 +290,24 @@ void EditorApplication::applyViewportCameraInput(const ui::ViewportCameraInput& 
     if (input.zoom_delta != 0.0F) {
         viewport_renderer_.zoom(input.zoom_delta);
     }
+}
+
+void EditorApplication::handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request) {
+    if (!request.triggered || !active_document_.has_value()) {
+        return;
+    }
+
+    const ui::SelectionFilters& selection_filters = editor_ui_.selectionFilters();
+    const std::size_t selection_count = viewport_renderer_.selectAt(
+        request.normalized_x,
+        request.normalized_y,
+        render::ViewportRenderer::SelectionQuery{
+            .edges = selection_filters.edges,
+            .faces = selection_filters.faces,
+            .points = selection_filters.points,
+        }
+    );
+    appendLog("SELECTION", "Selected (" + std::to_string(selection_count) + ") entities");
 }
 
 }  // namespace meshtools::app

@@ -48,8 +48,12 @@ void BottomPane::draw(const EditorUiState& state) {
         if (ImGui::BeginTabItem("Selection")) {
             if (state.active_document != nullptr) {
                 ImGui::Text("Active mesh: %s", state.active_document->displayName().c_str());
+                ImGui::Text("Selected entities: %zu", state.selection_summary.totalCount());
+                ImGui::Text("Faces: %zu", state.selection_summary.face_count);
+                ImGui::Text("Edges: %zu", state.selection_summary.edge_count);
+                ImGui::Text("Points: %zu", state.selection_summary.point_count);
             } else {
-                ImGui::TextUnformatted("No active selection.");
+                ImGui::TextUnformatted("No active mesh.");
             }
             ImGui::EndTabItem();
         }

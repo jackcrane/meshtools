@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <span>
 #include <string>
 #include <vector>
@@ -14,6 +15,15 @@ struct EditorUiState {
     std::span<const std::string> log_messages;
     float camera_yaw = 0.0F;
     float camera_pitch = 0.0F;
+    struct SelectionSummary {
+        std::size_t edge_count = 0;
+        std::size_t face_count = 0;
+        std::size_t point_count = 0;
+
+        [[nodiscard]] std::size_t totalCount() const {
+            return edge_count + face_count + point_count;
+        }
+    } selection_summary;
 };
 
 enum class PanModifier {
@@ -70,6 +80,12 @@ struct ViewportCameraInput {
     bool reset = false;
 };
 
+struct ViewportSelectionRequest {
+    bool triggered = false;
+    float normalized_x = 0.0F;
+    float normalized_y = 0.0F;
+};
+
 struct EditorUiLogEvent {
     std::string origin;
     std::string message;
@@ -80,6 +96,7 @@ struct EditorUiActions {
     bool request_open_document = false;
     bool request_save_project = false;
     ViewportCameraInput viewport_camera;
+    ViewportSelectionRequest viewport_selection;
     std::vector<EditorUiLogEvent> event_logs;
 };
 

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <vector>
 
 #include "meshtools/mesh/MeshDocument.h"
@@ -10,6 +12,20 @@ namespace meshtools::render {
 
 class ViewportRenderer {
   public:
+    struct SelectionQuery {
+        bool edges = false;
+        bool faces = false;
+        bool points = false;
+    };
+
+    struct SelectionSummary {
+        std::size_t edge_count = 0;
+        std::size_t face_count = 0;
+        std::size_t point_count = 0;
+
+        [[nodiscard]] std::size_t totalCount() const;
+    };
+
     enum class UpAxis {
         Y,
         Z,
@@ -31,6 +47,11 @@ class ViewportRenderer {
         float target_z = 0.0F;
     };
 
+    struct Edge {
+        std::uint32_t a = 0;
+        std::uint32_t b = 0;
+    };
+
     ViewportRenderer();
     ~ViewportRenderer();
 
@@ -42,11 +63,14 @@ class ViewportRenderer {
     void pan(float delta_x, float delta_y);
     void zoom(float delta);
     void resetCamera();
+    [[nodiscard]] std::size_t selectAt(float normalized_x, float normalized_y, const SelectionQuery& selection_query);
+    void clearSelection();
 
     [[nodiscard]] std::uint32_t textureId() const;
     [[nodiscard]] int textureWidth() const;
     [[nodiscard]] int textureHeight() const;
     [[nodiscard]] const CameraState& camera() const;
+    [[nodiscard]] const SelectionSummary& selectionSummary() const;
 
   private:
     struct UploadedMeshState {
@@ -68,29 +92,57 @@ class ViewportRenderer {
         float color[3];
     };
 
+    struct HighlightVertex {
+        float position[3];
+    };
+
+    struct SelectedEntities {
+        std::optional<std::uint32_t> edge_index;
+        std::optional<std::uint32_t> face_index;
+        std::optional<std::uint32_t> point_index;
+    };
+
     void ensureFramebuffer(int width, int height);
     void ensureShaderProgram();
     void ensureAxisResources();
+    void ensureHighlightResources();
     void ensurePlaceholderMesh();
     void syncMesh(const mesh::MeshDocument* document, UpAxis up_axis);
     void uploadGeometry(const std::vector<Vertex>& vertices, const std::vector<std::uint32_t>& indices);
+    void updateHighlightBuffers();
 
     std::uint32_t framebuffer_ = 0;
     std::uint32_t color_texture_ = 0;
     std::uint32_t depth_renderbuffer_ = 0;
     std::uint32_t shader_program_ = 0;
     std::uint32_t axis_shader_program_ = 0;
+    std::uint32_t highlight_shader_program_ = 0;
     std::uint32_t vertex_array_ = 0;
     std::uint32_t vertex_buffer_ = 0;
     std::uint32_t index_buffer_ = 0;
     std::uint32_t axis_vertex_array_ = 0;
     std::uint32_t axis_vertex_buffer_ = 0;
+    std::uint32_t selected_face_vertex_array_ = 0;
+    std::uint32_t selected_face_vertex_buffer_ = 0;
+    std::uint32_t selected_edge_vertex_array_ = 0;
+    std::uint32_t selected_edge_vertex_buffer_ = 0;
+    std::uint32_t selected_point_vertex_array_ = 0;
+    std::uint32_t selected_point_vertex_buffer_ = 0;
     std::uint32_t vertex_count_ = 0;
     std::uint32_t index_count_ = 0;
+    std::uint32_t selected_face_vertex_count_ = 0;
+    std::uint32_t selected_edge_vertex_count_ = 0;
+    std::uint32_t selected_point_vertex_count_ = 0;
     int framebuffer_width_ = 0;
     int framebuffer_height_ = 0;
     CameraState camera_{};
     UploadedMeshState uploaded_mesh_state_{};
+    std::vector<mesh::Vec3> normalized_positions_;
+    std::vector<mesh::Triangle> normalized_triangles_;
+    std::vector<Edge> unique_edges_;
+    SelectedEntities selected_entities_{};
+    SelectionSummary selection_summary_{};
+    bool has_document_mesh_ = false;
 };
 
 }  // namespace meshtools::render

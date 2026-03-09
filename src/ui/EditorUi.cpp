@@ -96,6 +96,10 @@ const FileImportSettings& EditorUi::fileImportSettings() const {
     return file_import_settings_;
 }
 
+const SelectionFilters& EditorUi::selectionFilters() const {
+    return selection_filters_;
+}
+
 const ViewportDisplaySettings& EditorUi::viewportDisplaySettings() const {
     return viewport_display_settings_;
 }

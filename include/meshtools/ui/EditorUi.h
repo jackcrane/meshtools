@@ -29,6 +29,7 @@ class EditorUi {
 
     [[nodiscard]] const ImVec4& clearColor() const;
     [[nodiscard]] const FileImportSettings& fileImportSettings() const;
+    [[nodiscard]] const SelectionFilters& selectionFilters() const;
     [[nodiscard]] const ViewportDisplaySettings& viewportDisplaySettings() const;
     [[nodiscard]] ImVec2 viewportRenderSize() const;
     [[nodiscard]] ImVec2 viewportRenderTargetSize() const;
