@@ -1306,20 +1306,48 @@ std::size_t ViewportRenderer::selectInRect(
         selected_edge_indices_ = std::move(box_edge_indices);
         selected_point_indices_ = std::move(box_point_indices);
     } else {
-        auto toggle_indices = [](std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
+        const bool any_hits =
+            !box_face_indices.empty() ||
+            !box_edge_indices.empty() ||
+            !box_point_indices.empty();
+
+        auto contains_all = [](const std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
+            return std::all_of(hits.begin(), hits.end(), [&target](std::uint32_t hit_index) {
+                return std::find(target.begin(), target.end(), hit_index) != target.end();
+            });
+        };
+
+        const bool all_hits_already_selected =
+            any_hits &&
+            contains_all(selected_face_indices_, box_face_indices) &&
+            contains_all(selected_edge_indices_, box_edge_indices) &&
+            contains_all(selected_point_indices_, box_point_indices);
+
+        auto remove_hits = [](std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
+            target.erase(
+                std::remove_if(target.begin(), target.end(), [&hits](std::uint32_t value) {
+                    return std::find(hits.begin(), hits.end(), value) != hits.end();
+                }),
+                target.end()
+            );
+        };
+        auto add_missing_hits = [](std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
             for (const std::uint32_t hit_index : hits) {
-                const auto existing = std::find(target.begin(), target.end(), hit_index);
-                if (existing != target.end()) {
-                    target.erase(existing);
-                } else {
+                if (std::find(target.begin(), target.end(), hit_index) == target.end()) {
                     target.push_back(hit_index);
                 }
             }
         };
 
-        toggle_indices(selected_face_indices_, box_face_indices);
-        toggle_indices(selected_edge_indices_, box_edge_indices);
-        toggle_indices(selected_point_indices_, box_point_indices);
+        if (all_hits_already_selected) {
+            remove_hits(selected_face_indices_, box_face_indices);
+            remove_hits(selected_edge_indices_, box_edge_indices);
+            remove_hits(selected_point_indices_, box_point_indices);
+        } else if (any_hits) {
+            add_missing_hits(selected_face_indices_, box_face_indices);
+            add_missing_hits(selected_edge_indices_, box_edge_indices);
+            add_missing_hits(selected_point_indices_, box_point_indices);
+        }
     }
 
     selection_summary_ = SelectionSummary{
