@@ -44,7 +44,7 @@ class ViewportPane {
   private:
     struct DragSelectionState {
         bool active = false;
-        bool toggle_existing = false;
+        ViewportSelectionRequest::Mode mode = ViewportSelectionRequest::Mode::Replace;
         ImVec2 start = ImVec2(0.0F, 0.0F);
         ImVec2 current = ImVec2(0.0F, 0.0F);
     };

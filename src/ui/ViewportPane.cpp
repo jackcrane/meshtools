@@ -34,6 +34,16 @@ bool isCmdOrCtrlHeld(GLFWwindow* window, const ImGuiIO& io) {
 #endif
 }
 
+ViewportSelectionRequest::Mode selectionModeFromModifiers(GLFWwindow* window, const ImGuiIO& io) {
+    if (io.KeyShift) {
+        return ViewportSelectionRequest::Mode::Path;
+    }
+
+    return isCmdOrCtrlHeld(window, io)
+        ? ViewportSelectionRequest::Mode::Toggle
+        : ViewportSelectionRequest::Mode::Replace;
+}
+
 bool pointInRect(const ImVec2& point, const ImVec2& minimum, const ImVec2& maximum) {
     return point.x >= minimum.x &&
            point.x <= maximum.x &&
@@ -245,18 +255,21 @@ void ViewportPane::draw(
                     std::clamp((std::max(drag_selection_.start.x, drag_selection_.current.x) - viewport_rect_min.x) / std::max(render_size_.x, 1.0F), 0.0F, 1.0F);
                 actions->viewport_selection.normalized_max_y =
                     std::clamp((std::max(drag_selection_.start.y, drag_selection_.current.y) - viewport_rect_min.y) / std::max(render_size_.y, 1.0F), 0.0F, 1.0F);
-                actions->viewport_selection.toggle_existing = drag_selection_.toggle_existing;
+                actions->viewport_selection.mode =
+                    drag_selection_.mode == ViewportSelectionRequest::Mode::Toggle
+                        ? ViewportSelectionRequest::Mode::Toggle
+                        : ViewportSelectionRequest::Mode::Replace;
             } else {
                 actions->viewport_selection.type = ViewportSelectionRequest::Type::Click;
+                actions->viewport_selection.mode = drag_selection_.mode;
                 actions->viewport_selection.normalized_x =
                     std::clamp((drag_selection_.current.x - viewport_rect_min.x) / std::max(render_size_.x, 1.0F), 0.0F, 1.0F);
                 actions->viewport_selection.normalized_y =
                     std::clamp((drag_selection_.current.y - viewport_rect_min.y) / std::max(render_size_.y, 1.0F), 0.0F, 1.0F);
-                actions->viewport_selection.toggle_existing = drag_selection_.toggle_existing;
             }
 
             drag_selection_.active = false;
-            drag_selection_.toggle_existing = false;
+            drag_selection_.mode = ViewportSelectionRequest::Mode::Replace;
         }
     }
 
@@ -276,7 +289,7 @@ void ViewportPane::draw(
 
         if (viewport_left_clicked && !mouse_over_controls) {
             drag_selection_.active = true;
-            drag_selection_.toggle_existing = isCmdOrCtrlHeld(window_, io);
+            drag_selection_.mode = selectionModeFromModifiers(window_, io);
             drag_selection_.start = clampToRect(io.MousePos, viewport_rect_min, viewport_rect_max);
             drag_selection_.current = drag_selection_.start;
         }

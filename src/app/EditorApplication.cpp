@@ -307,9 +307,11 @@ void EditorApplication::handleViewportSelectionRequest(const ui::ViewportSelecti
         .points = selection_filters.points,
     };
     const render::ViewportRenderer::SelectionMode selection_mode =
-        request.toggle_existing
+        request.mode == ui::ViewportSelectionRequest::Mode::Toggle
             ? render::ViewportRenderer::SelectionMode::Toggle
-            : render::ViewportRenderer::SelectionMode::Replace;
+            : request.mode == ui::ViewportSelectionRequest::Mode::Path
+                  ? render::ViewportRenderer::SelectionMode::Path
+                  : render::ViewportRenderer::SelectionMode::Replace;
     std::size_t selection_count = 0;
     if (request.type == ui::ViewportSelectionRequest::Type::Click) {
         selection_count = viewport_renderer_.selectAt(

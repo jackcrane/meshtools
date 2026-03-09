@@ -87,14 +87,20 @@ struct ViewportSelectionRequest {
         Box,
     };
 
+    enum class Mode {
+        Replace,
+        Toggle,
+        Path,
+    };
+
     Type type = Type::None;
+    Mode mode = Mode::Replace;
     float normalized_x = 0.0F;
     float normalized_y = 0.0F;
     float normalized_min_x = 0.0F;
     float normalized_min_y = 0.0F;
     float normalized_max_x = 0.0F;
     float normalized_max_y = 0.0F;
-    bool toggle_existing = false;
 };
 
 struct EditorUiLogEvent {

@@ -1,6 +1,9 @@
 #include "meshtools/render/ViewportRenderer.h"
 
 #include <algorithm>
+#include <deque>
+#include <iostream>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -11,6 +14,71 @@
 #endif
 
 namespace meshtools::render {
+namespace {
+
+bool containsIndex(const std::vector<std::uint32_t>& indices, std::uint32_t index) {
+    return std::find(indices.begin(), indices.end(), index) != indices.end();
+}
+
+void addMissingIndices(std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
+    for (const std::uint32_t hit_index : hits) {
+        if (!containsIndex(target, hit_index)) {
+            target.push_back(hit_index);
+        }
+    }
+}
+
+std::vector<std::uint32_t> findShortestPath(
+    const std::vector<std::vector<std::uint32_t>>& neighbors,
+    std::uint32_t origin,
+    std::uint32_t destination
+) {
+    if (origin >= neighbors.size() || destination >= neighbors.size()) {
+        return {};
+    }
+
+    if (origin == destination) {
+        return {origin};
+    }
+
+    std::vector<std::int32_t> previous(neighbors.size(), -1);
+    std::deque<std::uint32_t> frontier;
+    frontier.push_back(origin);
+    previous[origin] = static_cast<std::int32_t>(origin);
+
+    while (!frontier.empty()) {
+        const std::uint32_t current = frontier.front();
+        frontier.pop_front();
+
+        for (const std::uint32_t neighbor : neighbors[current]) {
+            if (neighbor >= neighbors.size() || previous[neighbor] != -1) {
+                continue;
+            }
+
+            previous[neighbor] = static_cast<std::int32_t>(current);
+            if (neighbor == destination) {
+                frontier.clear();
+                break;
+            }
+
+            frontier.push_back(neighbor);
+        }
+    }
+
+    if (previous[destination] == -1) {
+        return {};
+    }
+
+    std::vector<std::uint32_t> path;
+    for (std::uint32_t current = destination; current != origin; current = static_cast<std::uint32_t>(previous[current])) {
+        path.push_back(current);
+    }
+    path.push_back(origin);
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+
+}  // namespace
 
 void ViewportRenderer::updateHighlightBuffers() {
     if (highlight_shader_program_ == 0) {
@@ -186,7 +254,11 @@ std::size_t ViewportRenderer::selectAt(
         selected_face_indices_ = std::move(clicked_face_indices);
         selected_edge_indices_ = std::move(clicked_edge_indices);
         selected_point_indices_ = std::move(clicked_point_indices);
-    } else {
+        face_selection_anchor_ =
+            selected_face_indices_.empty() ? std::nullopt : std::optional<std::uint32_t>(selected_face_indices_.front());
+        edge_selection_anchor_ =
+            selected_edge_indices_.empty() ? std::nullopt : std::optional<std::uint32_t>(selected_edge_indices_.front());
+    } else if (selection_mode == SelectionMode::Toggle) {
         auto toggle_indices = [](std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
             for (const std::uint32_t hit_index : hits) {
                 const auto existing = std::find(target.begin(), target.end(), hit_index);
@@ -201,6 +273,67 @@ std::size_t ViewportRenderer::selectAt(
         toggle_indices(selected_face_indices_, clicked_face_indices);
         toggle_indices(selected_edge_indices_, clicked_edge_indices);
         toggle_indices(selected_point_indices_, clicked_point_indices);
+        if (!clicked_face_indices.empty()) {
+            if (containsIndex(selected_face_indices_, clicked_face_indices.front())) {
+                face_selection_anchor_ = clicked_face_indices.front();
+            } else if (face_selection_anchor_ == clicked_face_indices.front()) {
+                face_selection_anchor_.reset();
+            }
+        }
+        if (!clicked_edge_indices.empty()) {
+            if (containsIndex(selected_edge_indices_, clicked_edge_indices.front())) {
+                edge_selection_anchor_ = clicked_edge_indices.front();
+            } else if (edge_selection_anchor_ == clicked_edge_indices.front()) {
+                edge_selection_anchor_.reset();
+            }
+        }
+    } else {
+        auto add_path_or_fallback = [](const char* label,
+                                       std::vector<std::uint32_t>& target,
+                                       const std::vector<std::vector<std::uint32_t>>& neighbors,
+                                       std::optional<std::uint32_t>& anchor,
+                                       const std::vector<std::uint32_t>& hits) {
+            if (hits.empty()) {
+                return;
+            }
+
+            for (const std::uint32_t hit_index : hits) {
+                if (anchor.has_value()) {
+                    const std::vector<std::uint32_t> path = findShortestPath(neighbors, *anchor, hit_index);
+                    if (!path.empty()) {
+                        addMissingIndices(target, path);
+                        std::cout
+                            << "[selection:path] " << label
+                            << " anchor=" << *anchor
+                            << " destination=" << hit_index
+                            << " path_length=" << path.size()
+                            << '\n';
+                    } else {
+                        addMissingIndices(target, {hit_index});
+                        std::cout
+                            << "[selection:path] " << label
+                            << " anchor=" << *anchor
+                            << " destination=" << hit_index
+                            << " disconnected_fallback=1\n";
+                    }
+                } else {
+                    addMissingIndices(target, {hit_index});
+                    std::cout
+                        << "[selection:path] " << label
+                        << " anchor=none"
+                        << " destination=" << hit_index
+                        << " seeded=1\n";
+                }
+
+                if (containsIndex(target, hit_index)) {
+                    anchor = hit_index;
+                }
+            }
+        };
+
+        add_path_or_fallback("faces", selected_face_indices_, face_neighbors_, face_selection_anchor_, clicked_face_indices);
+        add_path_or_fallback("edges", selected_edge_indices_, edge_neighbors_, edge_selection_anchor_, clicked_edge_indices);
+        addMissingIndices(selected_point_indices_, clicked_point_indices);
     }
 
     selection_summary_ = SelectionSummary{
@@ -388,6 +521,9 @@ std::size_t ViewportRenderer::selectInRect(
         }
     }
 
+    face_selection_anchor_.reset();
+    edge_selection_anchor_.reset();
+
     selection_summary_ = SelectionSummary{
         .edge_count = selected_edge_indices_.size(),
         .face_count = selected_face_indices_.size(),
@@ -431,6 +567,9 @@ std::size_t ViewportRenderer::invertSelection(const SelectionQuery& selection_qu
         invert_indices(selected_point_indices_, normalized_positions_.size());
     }
 
+    face_selection_anchor_.reset();
+    edge_selection_anchor_.reset();
+
     selection_summary_ = SelectionSummary{
         .edge_count = selected_edge_indices_.size(),
         .face_count = selected_face_indices_.size(),
@@ -444,6 +583,8 @@ void ViewportRenderer::clearSelection() {
     selected_edge_indices_.clear();
     selected_face_indices_.clear();
     selected_point_indices_.clear();
+    face_selection_anchor_.reset();
+    edge_selection_anchor_.reset();
     selection_summary_ = SelectionSummary{};
     updateHighlightBuffers();
 }

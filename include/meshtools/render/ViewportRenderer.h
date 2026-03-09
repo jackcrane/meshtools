@@ -15,6 +15,7 @@ class ViewportRenderer {
     enum class SelectionMode {
         Replace,
         Toggle,
+        Path,
     };
 
     struct SelectionQuery {
@@ -153,9 +154,14 @@ class ViewportRenderer {
     std::vector<mesh::Vec3> normalized_positions_;
     std::vector<mesh::Triangle> normalized_triangles_;
     std::vector<Edge> unique_edges_;
+    std::vector<Edge> unique_edge_topology_vertices_;
+    std::vector<std::vector<std::uint32_t>> face_neighbors_;
+    std::vector<std::vector<std::uint32_t>> edge_neighbors_;
     std::vector<std::uint32_t> selected_edge_indices_;
     std::vector<std::uint32_t> selected_face_indices_;
     std::vector<std::uint32_t> selected_point_indices_;
+    std::optional<std::uint32_t> face_selection_anchor_;
+    std::optional<std::uint32_t> edge_selection_anchor_;
     SelectionSummary selection_summary_{};
     bool has_document_mesh_ = false;
 };

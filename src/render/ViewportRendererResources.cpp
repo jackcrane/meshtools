@@ -1,8 +1,11 @@
 #include "meshtools/render/ViewportRenderer.h"
 
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -13,6 +16,35 @@
 #endif
 
 namespace meshtools::render {
+namespace {
+
+struct QuantizedPositionKey {
+    std::int64_t x = 0;
+    std::int64_t y = 0;
+    std::int64_t z = 0;
+
+    [[nodiscard]] bool operator==(const QuantizedPositionKey& other) const = default;
+};
+
+struct QuantizedPositionKeyHash {
+    [[nodiscard]] std::size_t operator()(const QuantizedPositionKey& key) const noexcept {
+        const std::size_t hx = std::hash<std::int64_t>{}(key.x);
+        const std::size_t hy = std::hash<std::int64_t>{}(key.y);
+        const std::size_t hz = std::hash<std::int64_t>{}(key.z);
+        return hx ^ (hy << 1U) ^ (hz << 2U);
+    }
+};
+
+QuantizedPositionKey makeQuantizedPositionKey(const mesh::Vec3& position) {
+    constexpr double kWeldPrecision = 1000000.0;
+    return QuantizedPositionKey{
+        .x = static_cast<std::int64_t>(std::llround(static_cast<double>(position.x) * kWeldPrecision)),
+        .y = static_cast<std::int64_t>(std::llround(static_cast<double>(position.y) * kWeldPrecision)),
+        .z = static_cast<std::int64_t>(std::llround(static_cast<double>(position.z) * kWeldPrecision)),
+    };
+}
+
+}  // namespace
 
 void ViewportRenderer::ensureFramebuffer(int width, int height) {
     if (framebuffer_ == 0) {
@@ -141,6 +173,9 @@ void ViewportRenderer::ensurePlaceholderMesh() {
     normalized_positions_.clear();
     normalized_triangles_.clear();
     unique_edges_.clear();
+    unique_edge_topology_vertices_.clear();
+    face_neighbors_.clear();
+    edge_neighbors_.clear();
     has_document_mesh_ = false;
     clearSelection();
 }
@@ -215,8 +250,24 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
     }
 
     normalized_triangles_ = document->triangles;
+    std::vector<std::uint32_t> topology_vertex_indices(normalized_positions_.size(), 0);
+    std::unordered_map<QuantizedPositionKey, std::uint32_t, QuantizedPositionKeyHash> welded_vertices;
+    welded_vertices.reserve(normalized_positions_.size());
+    std::uint32_t topology_vertex_count = 0;
+    for (std::size_t vertex_index = 0; vertex_index < normalized_positions_.size(); ++vertex_index) {
+        const QuantizedPositionKey key = makeQuantizedPositionKey(normalized_positions_[vertex_index]);
+        const auto [iterator, inserted] = welded_vertices.emplace(key, topology_vertex_count);
+        if (inserted) {
+            ++topology_vertex_count;
+        }
+
+        topology_vertex_indices[vertex_index] = iterator->second;
+    }
+
     unique_edges_.clear();
+    unique_edge_topology_vertices_.clear();
     unique_edges_.reserve(document->triangles.size() * 3ULL);
+    unique_edge_topology_vertices_.reserve(document->triangles.size() * 3ULL);
     std::unordered_set<std::uint64_t> seen_edges;
     seen_edges.reserve(document->triangles.size() * 3ULL);
     for (const mesh::Triangle& triangle : document->triangles) {
@@ -227,9 +278,52 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
         }};
 
         for (const Edge& edge : triangle_edges) {
-            const std::uint64_t key = detail::edgeKey(edge.a, edge.b);
+            const Edge topology_edge{
+                topology_vertex_indices[edge.a],
+                topology_vertex_indices[edge.b],
+            };
+            const std::uint64_t key = detail::edgeKey(topology_edge.a, topology_edge.b);
             if (seen_edges.insert(key).second) {
                 unique_edges_.push_back(edge);
+                unique_edge_topology_vertices_.push_back(topology_edge);
+            }
+        }
+    }
+
+    face_neighbors_.assign(normalized_triangles_.size(), {});
+    std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> faces_by_edge;
+    faces_by_edge.reserve(document->triangles.size() * 3ULL);
+    for (std::size_t triangle_index = 0; triangle_index < normalized_triangles_.size(); ++triangle_index) {
+        const mesh::Triangle& triangle = normalized_triangles_[triangle_index];
+        faces_by_edge[detail::edgeKey(topology_vertex_indices[triangle.a], topology_vertex_indices[triangle.b])]
+            .push_back(static_cast<std::uint32_t>(triangle_index));
+        faces_by_edge[detail::edgeKey(topology_vertex_indices[triangle.b], topology_vertex_indices[triangle.c])]
+            .push_back(static_cast<std::uint32_t>(triangle_index));
+        faces_by_edge[detail::edgeKey(topology_vertex_indices[triangle.c], topology_vertex_indices[triangle.a])]
+            .push_back(static_cast<std::uint32_t>(triangle_index));
+    }
+    for (const auto& [edge_key, adjacent_faces] : faces_by_edge) {
+        (void)edge_key;
+        for (std::size_t i = 0; i < adjacent_faces.size(); ++i) {
+            for (std::size_t j = i + 1; j < adjacent_faces.size(); ++j) {
+                face_neighbors_[adjacent_faces[i]].push_back(adjacent_faces[j]);
+                face_neighbors_[adjacent_faces[j]].push_back(adjacent_faces[i]);
+            }
+        }
+    }
+
+    edge_neighbors_.assign(unique_edges_.size(), {});
+    std::vector<std::vector<std::uint32_t>> edges_by_vertex(topology_vertex_count);
+    for (std::size_t edge_index = 0; edge_index < unique_edge_topology_vertices_.size(); ++edge_index) {
+        const Edge& edge = unique_edge_topology_vertices_[edge_index];
+        edges_by_vertex[edge.a].push_back(static_cast<std::uint32_t>(edge_index));
+        edges_by_vertex[edge.b].push_back(static_cast<std::uint32_t>(edge_index));
+    }
+    for (const std::vector<std::uint32_t>& incident_edges : edges_by_vertex) {
+        for (std::size_t i = 0; i < incident_edges.size(); ++i) {
+            for (std::size_t j = i + 1; j < incident_edges.size(); ++j) {
+                edge_neighbors_[incident_edges[i]].push_back(incident_edges[j]);
+                edge_neighbors_[incident_edges[j]].push_back(incident_edges[i]);
             }
         }
     }
