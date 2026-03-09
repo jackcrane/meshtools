@@ -50,6 +50,9 @@ add_library(meshtools_core STATIC
     src/mesh/MeshDocument.cpp
     src/platform/GlfwWindow.cpp
     src/render/ViewportRenderer.cpp
+    src/render/ViewportRendererDetail.cpp
+    src/render/ViewportRendererResources.cpp
+    src/render/ViewportRendererSelection.cpp
     src/ui/BottomPane.cpp
     src/ui/EditorDockLayout.cpp
     src/ui/EditorUi.cpp
