@@ -106,6 +106,7 @@ struct EditorUiActions {
     bool request_exit = false;
     bool request_open_document = false;
     bool request_save_project = false;
+    bool request_invert_selection = false;
     ViewportCameraInput viewport_camera;
     ViewportSelectionRequest viewport_selection;
     std::vector<EditorUiLogEvent> event_logs;

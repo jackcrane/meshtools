@@ -65,13 +65,15 @@ void ViewportPane::draw(
     std::string_view edge_shortcut,
     std::string_view face_shortcut,
     std::string_view point_shortcut,
+    std::string_view invert_selection_shortcut,
     EditorUiActions* actions,
     const std::function<void()>& on_toggle_wireframe,
     const std::function<void()>& on_toggle_shade_triangles,
     const std::function<void()>& on_toggle_show_points,
     const std::function<void()>& on_toggle_edges,
     const std::function<void()>& on_toggle_faces,
-    const std::function<void()>& on_toggle_points
+    const std::function<void()>& on_toggle_points,
+    const std::function<void()>& on_invert_selection
 ) {
     constexpr ImGuiWindowFlags pane_flags =
         ImGuiWindowFlags_NoCollapse |
@@ -206,6 +208,8 @@ void ViewportPane::draw(
         filter_top_right.x,
         filter_top_right.y + (static_cast<float>(filter_items.size()) * kOverlayButtonSize.y)
     );
+    const char* invert_selection_shortcut_label =
+        invert_selection_shortcut.empty() ? nullptr : invert_selection_shortcut.data();
 
     const ViewportGizmoResult gizmo_result = drawViewportGizmo(
         ViewportGizmoConfig{
@@ -219,6 +223,7 @@ void ViewportPane::draw(
         state.active_document,
         actions
     );
+    const bool viewport_context_open = ImGui::IsPopupOpen("ViewportContextMenu");
 
     if (actions != nullptr && drag_selection_.active) {
         ImGuiIO& io = ImGui::GetIO();
@@ -261,7 +266,8 @@ void ViewportPane::draw(
         clicked_display_item == -1 &&
         clicked_filter_item == -1 &&
         !gizmo_result.hovered &&
-        !gizmo_result.context_open
+        !gizmo_result.context_open &&
+        !viewport_context_open
     ) {
         ImGuiIO& io = ImGui::GetIO();
         const bool mouse_over_controls =
@@ -273,6 +279,12 @@ void ViewportPane::draw(
             drag_selection_.toggle_existing = isCmdOrCtrlHeld(window_, io);
             drag_selection_.start = clampToRect(io.MousePos, viewport_rect_min, viewport_rect_max);
             drag_selection_.current = drag_selection_.start;
+        }
+
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+            !mouse_over_controls &&
+            !ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+            ImGui::OpenPopup("ViewportContextMenu");
         }
 
         if (io.MouseWheel != 0.0F) {
@@ -307,6 +319,13 @@ void ViewportPane::draw(
         );
         draw_list->AddRectFilled(selection_min, selection_max, IM_COL32(196, 200, 206, 42));
         draw_list->AddRect(selection_min, selection_max, IM_COL32(214, 218, 224, 220), 0.0F, 0, 1.5F);
+    }
+
+    if (ImGui::BeginPopup("ViewportContextMenu")) {
+        if (ImGui::MenuItem("Invert selection", invert_selection_shortcut_label)) {
+            on_invert_selection();
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::End();

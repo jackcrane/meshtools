@@ -10,6 +10,7 @@ void toggleShowPoints(ViewportDisplaySettings& viewport_display_settings, Editor
 void toggleEdgeSelection(SelectionFilters& selection_filters, EditorUiActions* actions);
 void toggleFaceSelection(SelectionFilters& selection_filters, EditorUiActions* actions);
 void togglePointSelection(SelectionFilters& selection_filters, EditorUiActions* actions);
+void requestInvertSelection(EditorUiActions* actions);
 void resetViewport(
     ViewportDisplaySettings& viewport_display_settings,
     SelectionFilters& selection_filters,

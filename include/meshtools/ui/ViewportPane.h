@@ -26,13 +26,15 @@ class ViewportPane {
         std::string_view edge_shortcut,
         std::string_view face_shortcut,
         std::string_view point_shortcut,
+        std::string_view invert_selection_shortcut,
         EditorUiActions* actions,
         const std::function<void()>& on_toggle_wireframe,
         const std::function<void()>& on_toggle_shade_triangles,
         const std::function<void()>& on_toggle_show_points,
         const std::function<void()>& on_toggle_edges,
         const std::function<void()>& on_toggle_faces,
-        const std::function<void()>& on_toggle_points
+        const std::function<void()>& on_toggle_points,
+        const std::function<void()>& on_invert_selection
     );
 
     void setTexture(std::uint32_t texture_id);

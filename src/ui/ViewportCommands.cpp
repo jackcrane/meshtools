@@ -65,6 +65,14 @@ void togglePointSelection(SelectionFilters& selection_filters, EditorUiActions* 
     logSelectionState("Point selection", selection_filters.points, actions);
 }
 
+void requestInvertSelection(EditorUiActions* actions) {
+    if (actions == nullptr) {
+        return;
+    }
+
+    actions->request_invert_selection = true;
+}
+
 void resetViewport(
     ViewportDisplaySettings& viewport_display_settings,
     SelectionFilters& selection_filters,

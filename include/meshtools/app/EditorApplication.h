@@ -33,6 +33,7 @@ class EditorApplication {
     void loadMeshDocument(const std::filesystem::path& path);
     void loadProjectDocument(const std::filesystem::path& path);
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
+    void handleInvertSelectionRequest();
     void handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request);
 
     AppConfig config_;

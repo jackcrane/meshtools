@@ -82,6 +82,7 @@ class ViewportRenderer {
         const SelectionQuery& selection_query,
         SelectionMode selection_mode = SelectionMode::Replace
     );
+    [[nodiscard]] std::size_t invertSelection(const SelectionQuery& selection_query);
     void clearSelection();
 
     [[nodiscard]] std::uint32_t textureId() const;

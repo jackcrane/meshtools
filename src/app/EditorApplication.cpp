@@ -125,6 +125,9 @@ int EditorApplication::run() {
             appendLog(event_log.origin, event_log.message);
         }
         handleViewportSelectionRequest(actions.viewport_selection);
+        if (actions.request_invert_selection) {
+            handleInvertSelectionRequest();
+        }
 
         if (actions.request_open_document) {
             openDocument();
@@ -326,6 +329,21 @@ void EditorApplication::handleViewportSelectionRequest(const ui::ViewportSelecti
         );
     }
 
+    appendLog("SELECTION", "Selected (" + std::to_string(selection_count) + ") entities");
+}
+
+void EditorApplication::handleInvertSelectionRequest() {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    const ui::SelectionFilters& selection_filters = editor_ui_.selectionFilters();
+    const render::ViewportRenderer::SelectionQuery selection_query{
+        .edges = selection_filters.edges,
+        .faces = selection_filters.faces,
+        .points = selection_filters.points,
+    };
+    const std::size_t selection_count = viewport_renderer_.invertSelection(selection_query);
     appendLog("SELECTION", "Selected (" + std::to_string(selection_count) + ") entities");
 }
 

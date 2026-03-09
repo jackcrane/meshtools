@@ -397,6 +397,49 @@ std::size_t ViewportRenderer::selectInRect(
     return selection_summary_.totalCount();
 }
 
+std::size_t ViewportRenderer::invertSelection(const SelectionQuery& selection_query) {
+    if (!has_document_mesh_) {
+        return selection_summary_.totalCount();
+    }
+
+    auto invert_indices = [](std::vector<std::uint32_t>& selected_indices, std::size_t total_count) {
+        std::vector<unsigned char> selected_lookup(total_count, 0);
+        for (const std::uint32_t selected_index : selected_indices) {
+            if (selected_index < total_count) {
+                selected_lookup[selected_index] = 1;
+            }
+        }
+
+        std::vector<std::uint32_t> inverted_indices;
+        inverted_indices.reserve(total_count > selected_indices.size() ? (total_count - selected_indices.size()) : 0);
+        for (std::size_t index = 0; index < total_count; ++index) {
+            if (selected_lookup[index] == 0) {
+                inverted_indices.push_back(static_cast<std::uint32_t>(index));
+            }
+        }
+
+        selected_indices = std::move(inverted_indices);
+    };
+
+    if (selection_query.faces) {
+        invert_indices(selected_face_indices_, normalized_triangles_.size());
+    }
+    if (selection_query.edges) {
+        invert_indices(selected_edge_indices_, unique_edges_.size());
+    }
+    if (selection_query.points) {
+        invert_indices(selected_point_indices_, normalized_positions_.size());
+    }
+
+    selection_summary_ = SelectionSummary{
+        .edge_count = selected_edge_indices_.size(),
+        .face_count = selected_face_indices_.size(),
+        .point_count = selected_point_indices_.size(),
+    };
+    updateHighlightBuffers();
+    return selection_summary_.totalCount();
+}
+
 void ViewportRenderer::clearSelection() {
     selected_edge_indices_.clear();
     selected_face_indices_.clear();
