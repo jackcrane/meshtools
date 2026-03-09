@@ -167,6 +167,7 @@ constexpr float kPointDepthBias = 0.0022F;
 constexpr float kEdgeHitRadiusPixels = 8.0F;
 constexpr float kPointHitRadiusPixels = 11.0F;
 constexpr float kSelectionDepthTolerance = 0.03F;
+constexpr float kDepthBufferVisibilityEpsilon = 0.0025F;
 constexpr float kIntersectionEpsilon = 0.00001F;
 
 struct CameraData {
@@ -187,6 +188,7 @@ struct ProjectedPoint {
     float normalized_x = 0.0F;
     float normalized_y = 0.0F;
     float view_depth = 0.0F;
+    float depth_buffer_value = 1.0F;
 };
 
 struct Vec2 {
@@ -677,6 +679,9 @@ ProjectedPoint projectPointToViewport(
     const float tan_half_fov = std::tan(kVerticalFovRadians * 0.5F);
     const float ndc_x = view_x / (view_z * tan_half_fov * aspect_ratio);
     const float ndc_y = view_y / (view_z * tan_half_fov);
+    const float ndc_z =
+        ((kFarPlane + kNearPlane) / (kFarPlane - kNearPlane)) -
+        ((2.0F * kFarPlane * kNearPlane) / ((kFarPlane - kNearPlane) * view_z));
     if (ndc_x < -1.2F || ndc_x > 1.2F || ndc_y < -1.2F || ndc_y > 1.2F) {
         return ProjectedPoint{};
     }
@@ -686,7 +691,64 @@ ProjectedPoint projectPointToViewport(
         .normalized_x = (ndc_x + 1.0F) * 0.5F,
         .normalized_y = (1.0F - ndc_y) * 0.5F,
         .view_depth = view_z,
+        .depth_buffer_value = (ndc_z * 0.5F) + 0.5F,
     };
+}
+
+std::vector<float> readDepthBuffer(std::uint32_t framebuffer, int width, int height) {
+    std::vector<float> depth_buffer(static_cast<std::size_t>(std::max(width, 1) * std::max(height, 1)), 1.0F);
+    if (framebuffer == 0 || width <= 0 || height <= 0) {
+        return depth_buffer;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glReadPixels(0, 0, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, depth_buffer.data());
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return depth_buffer;
+}
+
+float sampleDepthBuffer(
+    const std::vector<float>& depth_buffer,
+    int width,
+    int height,
+    float normalized_x,
+    float normalized_y
+) {
+    if (depth_buffer.empty() || width <= 0 || height <= 0) {
+        return 1.0F;
+    }
+
+    const int pixel_x = std::clamp(
+        static_cast<int>(std::lround(normalized_x * static_cast<float>(width - 1))),
+        0,
+        width - 1
+    );
+    const int pixel_y = std::clamp(
+        static_cast<int>(std::lround((1.0F - normalized_y) * static_cast<float>(height - 1))),
+        0,
+        height - 1
+    );
+    return depth_buffer[static_cast<std::size_t>((pixel_y * width) + pixel_x)];
+}
+
+bool isProjectedPointVisible(
+    const ProjectedPoint& projected_point,
+    const std::vector<float>& depth_buffer,
+    int width,
+    int height
+) {
+    if (!projected_point.valid) {
+        return false;
+    }
+
+    const float sampled_depth = sampleDepthBuffer(
+        depth_buffer,
+        width,
+        height,
+        projected_point.normalized_x,
+        projected_point.normalized_y
+    );
+    return projected_point.depth_buffer_value <= (sampled_depth + kDepthBufferVisibilityEpsilon);
 }
 
 bool pointInNormalizedRect(float x, float y, float min_x, float min_y, float max_x, float max_y) {
@@ -1167,6 +1229,11 @@ std::size_t ViewportRenderer::selectInRect(
     const float max_y = std::clamp(std::max(normalized_min_y, normalized_max_y), 0.0F, 1.0F);
     const float aspect_ratio = static_cast<float>(framebuffer_width_) / static_cast<float>(framebuffer_height_);
     const CameraData camera_data = makeCameraData(camera_);
+    const std::vector<float> depth_buffer = readDepthBuffer(framebuffer_, framebuffer_width_, framebuffer_height_);
+    std::vector<ProjectedPoint> projected_positions(normalized_positions_.size());
+    for (std::size_t index = 0; index < normalized_positions_.size(); ++index) {
+        projected_positions[index] = projectPointToViewport(normalized_positions_[index], camera_data, aspect_ratio);
+    }
 
     std::vector<std::uint32_t> box_face_indices;
     std::vector<std::uint32_t> box_edge_indices;
@@ -1175,9 +1242,9 @@ std::size_t ViewportRenderer::selectInRect(
     if (selection_query.faces) {
         for (std::size_t triangle_index = 0; triangle_index < normalized_triangles_.size(); ++triangle_index) {
             const mesh::Triangle& triangle = normalized_triangles_[triangle_index];
-            const ProjectedPoint projected_a = projectPointToViewport(normalized_positions_[triangle.a], camera_data, aspect_ratio);
-            const ProjectedPoint projected_b = projectPointToViewport(normalized_positions_[triangle.b], camera_data, aspect_ratio);
-            const ProjectedPoint projected_c = projectPointToViewport(normalized_positions_[triangle.c], camera_data, aspect_ratio);
+            const ProjectedPoint& projected_a = projected_positions[triangle.a];
+            const ProjectedPoint& projected_b = projected_positions[triangle.b];
+            const ProjectedPoint& projected_c = projected_positions[triangle.c];
             if (!projected_a.valid || !projected_b.valid || !projected_c.valid) {
                 continue;
             }
@@ -1199,23 +1266,7 @@ std::size_t ViewportRenderer::selectInRect(
                 1.0F / 3.0F
             );
             const ProjectedPoint projected_centroid = projectPointToViewport(centroid, camera_data, aspect_ratio);
-            if (!projected_centroid.valid) {
-                continue;
-            }
-
-            const mesh::Vec3 centroid_ray = makeRayDirection(
-                camera_data,
-                projected_centroid.normalized_x,
-                projected_centroid.normalized_y,
-                aspect_ratio
-            );
-            const HitCandidate face_hit = findNearestTriangleHit(
-                normalized_positions_,
-                normalized_triangles_,
-                camera_data.eye,
-                centroid_ray
-            );
-            if (!face_hit.hit || face_hit.index != triangle_index) {
+            if (!isProjectedPointVisible(projected_centroid, depth_buffer, framebuffer_width_, framebuffer_height_)) {
                 continue;
             }
 
@@ -1226,8 +1277,8 @@ std::size_t ViewportRenderer::selectInRect(
     if (selection_query.edges) {
         for (std::size_t edge_index = 0; edge_index < unique_edges_.size(); ++edge_index) {
             const Edge& edge = unique_edges_[edge_index];
-            const ProjectedPoint projected_a = projectPointToViewport(normalized_positions_[edge.a], camera_data, aspect_ratio);
-            const ProjectedPoint projected_b = projectPointToViewport(normalized_positions_[edge.b], camera_data, aspect_ratio);
+            const ProjectedPoint& projected_a = projected_positions[edge.a];
+            const ProjectedPoint& projected_b = projected_positions[edge.b];
             if (!projected_a.valid || !projected_b.valid) {
                 continue;
             }
@@ -1245,25 +1296,7 @@ std::size_t ViewportRenderer::selectInRect(
 
             const mesh::Vec3 midpoint = scale(add(normalized_positions_[edge.a], normalized_positions_[edge.b]), 0.5F);
             const ProjectedPoint projected_midpoint = projectPointToViewport(midpoint, camera_data, aspect_ratio);
-            if (!projected_midpoint.valid) {
-                continue;
-            }
-
-            const mesh::Vec3 midpoint_ray = makeRayDirection(
-                camera_data,
-                projected_midpoint.normalized_x,
-                projected_midpoint.normalized_y,
-                aspect_ratio
-            );
-            const HitCandidate face_hit = findNearestTriangleHit(
-                normalized_positions_,
-                normalized_triangles_,
-                camera_data.eye,
-                midpoint_ray
-            );
-            float midpoint_t = 0.0F;
-            distanceToRaySquared(midpoint, camera_data.eye, midpoint_ray, &midpoint_t);
-            if (face_hit.hit && midpoint_t > (face_hit.t + kSelectionDepthTolerance)) {
+            if (!isProjectedPointVisible(projected_midpoint, depth_buffer, framebuffer_width_, framebuffer_height_)) {
                 continue;
             }
 
@@ -1273,27 +1306,13 @@ std::size_t ViewportRenderer::selectInRect(
 
     if (selection_query.points) {
         for (std::size_t point_index = 0; point_index < normalized_positions_.size(); ++point_index) {
-            const ProjectedPoint projected_point = projectPointToViewport(normalized_positions_[point_index], camera_data, aspect_ratio);
+            const ProjectedPoint& projected_point = projected_positions[point_index];
             if (!projected_point.valid ||
                 !pointInNormalizedRect(projected_point.normalized_x, projected_point.normalized_y, min_x, min_y, max_x, max_y)) {
                 continue;
             }
 
-            const mesh::Vec3 point_ray = makeRayDirection(
-                camera_data,
-                projected_point.normalized_x,
-                projected_point.normalized_y,
-                aspect_ratio
-            );
-            const HitCandidate face_hit = findNearestTriangleHit(
-                normalized_positions_,
-                normalized_triangles_,
-                camera_data.eye,
-                point_ray
-            );
-            float point_t = 0.0F;
-            distanceToRaySquared(normalized_positions_[point_index], camera_data.eye, point_ray, &point_t);
-            if (face_hit.hit && point_t > (face_hit.t + kSelectionDepthTolerance)) {
+            if (!isProjectedPointVisible(projected_point, depth_buffer, framebuffer_width_, framebuffer_height_)) {
                 continue;
             }
 
