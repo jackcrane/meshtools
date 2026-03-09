@@ -67,6 +67,7 @@ class ViewportPane {
     ImVec2 framebuffer_scale_ = ImVec2(1.0F, 1.0F);
     std::uint32_t texture_id_ = 0;
     DragSelectionState drag_selection_{};
+    bool right_click_context_eligible_ = false;
 };
 
 }  // namespace meshtools::ui

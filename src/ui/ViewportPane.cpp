@@ -294,10 +294,21 @@ void ViewportPane::draw(
             drag_selection_.current = drag_selection_.start;
         }
 
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && !mouse_over_controls) {
+            right_click_context_eligible_ = true;
+        }
+
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Right, kSelectionDragThreshold)) {
+            right_click_context_eligible_ = false;
+        }
+
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
             !mouse_over_controls &&
-            !ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+            right_click_context_eligible_) {
             ImGui::OpenPopup("ViewportContextMenu");
+        }
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+            right_click_context_eligible_ = false;
         }
 
         if (io.MouseWheel != 0.0F) {
