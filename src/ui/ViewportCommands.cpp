@@ -65,6 +65,14 @@ void togglePointSelection(SelectionFilters& selection_filters, EditorUiActions* 
     logSelectionState("Point selection", selection_filters.points, actions);
 }
 
+void requestAddSelectionToEntitySet(EditorUiActions* actions) {
+    if (actions == nullptr) {
+        return;
+    }
+
+    actions->request_add_selection_to_entity_set = true;
+}
+
 void requestInvertSelection(EditorUiActions* actions) {
     if (actions == nullptr) {
         return;

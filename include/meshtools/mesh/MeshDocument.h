@@ -37,6 +37,25 @@ struct Bounds {
     bool valid = false;
 };
 
+struct EntitySelection {
+    std::vector<std::uint32_t> edge_indices;
+    std::vector<std::uint32_t> face_indices;
+    std::vector<std::uint32_t> point_indices;
+
+    [[nodiscard]] std::size_t totalCount() const {
+        return edge_indices.size() + face_indices.size() + point_indices.size();
+    }
+
+    [[nodiscard]] bool empty() const {
+        return totalCount() == 0;
+    }
+};
+
+struct EntitySet {
+    std::string name;
+    EntitySelection members;
+};
+
 struct MeshDocument {
     std::filesystem::path source_path;
     std::string display_name_override;
@@ -46,6 +65,7 @@ struct MeshDocument {
     std::vector<Vec3> normals;
     std::vector<Triangle> triangles;
     Bounds bounds;
+    std::vector<EntitySet> entity_sets;
 
     [[nodiscard]] std::string displayName() const;
     [[nodiscard]] std::string formatLabel() const;

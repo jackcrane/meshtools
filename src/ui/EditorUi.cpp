@@ -13,6 +13,7 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version)
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_E, "Toggle edge selection", ShortcutCommand::ToggleEdgeSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_F, "Toggle face selection", ShortcutCommand::ToggleFaceSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_P, "Toggle point selection", ShortcutCommand::TogglePointSelection);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_E, "Add to Entity Set", ShortcutCommand::AddSelectionToEntitySet);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_I, "Invert selection", ShortcutCommand::InvertSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_R, "Reset viewport", ShortcutCommand::ResetViewport);
 }
@@ -40,6 +41,8 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ToggleFaceSelection);
     const std::string point_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::TogglePointSelection);
+    const std::string add_to_entity_set_shortcut =
+        sequential_shortcuts_.shortcutLabel(ShortcutCommand::AddSelectionToEntitySet);
     const std::string invert_selection_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::InvertSelection);
 
@@ -58,6 +61,7 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         edge_shortcut,
         face_shortcut,
         point_shortcut,
+        add_to_entity_set_shortcut,
         invert_selection_shortcut,
         &actions,
         [this, &actions]() { toggleWireframe(viewport_display_settings_, &actions); },
@@ -139,6 +143,9 @@ void EditorUi::triggerShortcutAction(ShortcutCommand action, EditorUiActions* ac
             return;
         case ShortcutCommand::ResetViewport:
             resetViewport(viewport_display_settings_, selection_filters_, actions);
+            return;
+        case ShortcutCommand::AddSelectionToEntitySet:
+            requestAddSelectionToEntitySet(actions);
             return;
         case ShortcutCommand::InvertSelection:
             requestInvertSelection(actions);

@@ -85,6 +85,8 @@ class ViewportRenderer {
     );
     [[nodiscard]] std::size_t invertSelection(const SelectionQuery& selection_query);
     void clearSelection();
+    [[nodiscard]] mesh::EntitySelection currentSelection() const;
+    void setSelection(mesh::EntitySelection selection);
 
     [[nodiscard]] std::uint32_t textureId() const;
     [[nodiscard]] int textureWidth() const;

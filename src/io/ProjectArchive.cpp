@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <regex>
 #include <sstream>
@@ -26,6 +27,7 @@ constexpr const char* kConfigFileName = "config.ini";
 constexpr const char* kProjectFileName = "file.json";
 constexpr const char* kProjectLogFileName = "project.log";
 constexpr const char* kResourcesDirectoryName = "resources";
+constexpr const char* kEntitySetsDirectoryName = "entitysets";
 constexpr const char* kDefaultMeshResourcePath = "resources/mesh.obj";
 
 std::string trim(std::string value) {
@@ -192,6 +194,15 @@ std::string computeProjectChecksum(const std::filesystem::path& project_root) {
         }
     }
 
+    const std::filesystem::path entity_sets_path = project_root / kEntitySetsDirectoryName;
+    if (std::filesystem::exists(entity_sets_path)) {
+        for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(entity_sets_path)) {
+            if (entry.is_regular_file()) {
+                files_to_hash.push_back(entry.path());
+            }
+        }
+    }
+
     std::sort(files_to_hash.begin(), files_to_hash.end(), [&project_root](const auto& left, const auto& right) {
         return std::filesystem::relative(left, project_root).generic_string() <
                std::filesystem::relative(right, project_root).generic_string();
@@ -245,6 +256,41 @@ std::string joinLines(std::span<const std::string> lines) {
         }
     }
     return stream.str();
+}
+
+std::string joinIndices(std::span<const std::uint32_t> indices) {
+    std::ostringstream stream;
+    for (std::size_t index = 0; index < indices.size(); ++index) {
+        if (index > 0) {
+            stream << ',';
+        }
+        stream << indices[index];
+    }
+    return stream.str();
+}
+
+std::vector<std::uint32_t> parseIndices(const std::string& value) {
+    std::vector<std::uint32_t> indices;
+    std::stringstream stream(value);
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        token = trim(std::move(token));
+        if (token.empty()) {
+            continue;
+        }
+
+        std::size_t consumed = 0;
+        const unsigned long parsed = std::stoul(token, &consumed, 10);
+        if (consumed != token.size() || parsed > std::numeric_limits<std::uint32_t>::max()) {
+            throw std::runtime_error("Invalid entity index value: " + token + '.');
+        }
+
+        indices.push_back(static_cast<std::uint32_t>(parsed));
+    }
+
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    return indices;
 }
 
 std::optional<std::filesystem::path> locateProjectRoot(const std::filesystem::path& extract_root) {
@@ -315,6 +361,56 @@ std::string serializeConfigIni(std::string checksum, mesh::UpAxis up_axis) {
            "up_axis=" + std::string(mesh::upAxisName(up_axis)) + "\n";
 }
 
+std::string sanitizeEntitySetFilenameStem(std::string name) {
+    name = trim(std::move(name));
+    if (name.empty()) {
+        return "Entity Set";
+    }
+
+    for (char& character : name) {
+        const bool allowed =
+            std::isalnum(static_cast<unsigned char>(character)) != 0 ||
+            character == ' ' ||
+            character == '-' ||
+            character == '_' ||
+            character == '(' ||
+            character == ')';
+        if (!allowed) {
+            character = '_';
+        }
+    }
+
+    name = trim(std::move(name));
+    return name.empty() ? std::string("Entity Set") : name;
+}
+
+std::filesystem::path uniqueEntitySetFilePath(
+    const std::filesystem::path& directory,
+    std::string_view entity_set_name,
+    std::vector<std::filesystem::path>* used_paths
+) {
+    const std::string stem = sanitizeEntitySetFilenameStem(std::string(entity_set_name));
+    std::size_t suffix = 1;
+    while (true) {
+        const std::string candidate_stem =
+            suffix == 1 ? stem : (stem + ' ' + std::to_string(suffix));
+        const std::filesystem::path candidate = directory / (candidate_stem + ".entityset");
+        const bool already_used = std::find(used_paths->begin(), used_paths->end(), candidate) != used_paths->end();
+        if (!already_used) {
+            used_paths->push_back(candidate);
+            return candidate;
+        }
+        ++suffix;
+    }
+}
+
+std::string serializeEntitySetFile(const mesh::EntitySet& entity_set) {
+    return "name=" + entity_set.name + "\n"
+           "faces=" + joinIndices(entity_set.members.face_indices) + "\n"
+           "edges=" + joinIndices(entity_set.members.edge_indices) + "\n"
+           "points=" + joinIndices(entity_set.members.point_indices) + "\n";
+}
+
 mesh::UpAxis parseUpAxis(const std::string& value) {
     const std::string normalized = toLower(value);
     if (normalized == "y") {
@@ -325,6 +421,26 @@ mesh::UpAxis parseUpAxis(const std::string& value) {
     }
 
     throw std::runtime_error("Unsupported project up axis: " + value + '.');
+}
+
+mesh::EntitySet parseEntitySetFile(const std::filesystem::path& path, const std::string& contents) {
+    const std::optional<std::string> name = readIniValue(contents, "name");
+    if (!name.has_value()) {
+        throw std::runtime_error("Entity set file is missing name: " + path.filename().string() + '.');
+    }
+
+    const std::optional<std::string> faces = readIniValue(contents, "faces");
+    const std::optional<std::string> edges = readIniValue(contents, "edges");
+    const std::optional<std::string> points = readIniValue(contents, "points");
+
+    return mesh::EntitySet{
+        .name = *name,
+        .members = mesh::EntitySelection{
+            .edge_indices = edges.has_value() ? parseIndices(*edges) : std::vector<std::uint32_t>{},
+            .face_indices = faces.has_value() ? parseIndices(*faces) : std::vector<std::uint32_t>{},
+            .point_indices = points.has_value() ? parseIndices(*points) : std::vector<std::uint32_t>{},
+        },
+    };
 }
 
 void exportMeshAsObj(const mesh::MeshDocument& document, const std::filesystem::path& path) {
@@ -427,6 +543,23 @@ ProjectArchiveLoadResult loadProjectArchive(const std::filesystem::path& archive
         import_result.document->display_name_override = archive_path.stem().string();
         import_result.document->up_axis = parseUpAxis(*up_axis_value);
 
+        const std::filesystem::path entity_sets_path = *project_root / kEntitySetsDirectoryName;
+        if (std::filesystem::is_directory(entity_sets_path)) {
+            std::vector<std::filesystem::path> entity_set_files;
+            for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(entity_sets_path)) {
+                if (entry.is_regular_file() && toLower(entry.path().extension().string()) == ".entityset") {
+                    entity_set_files.push_back(entry.path());
+                }
+            }
+
+            std::sort(entity_set_files.begin(), entity_set_files.end());
+            for (const std::filesystem::path& entity_set_path : entity_set_files) {
+                import_result.document->entity_sets.push_back(
+                    parseEntitySetFile(entity_set_path, readTextFile(entity_set_path))
+                );
+            }
+        }
+
         return ProjectArchiveLoadResult{
             .document = std::move(import_result.document),
             .log_messages = splitLines(readTextFile(*project_root / kProjectLogFileName)),
@@ -451,11 +584,21 @@ ProjectArchiveSaveResult saveProjectArchive(
         ScopedTempDirectory temp_directory;
         const std::filesystem::path project_root = temp_directory.path() / "project";
         const std::filesystem::path resources_path = project_root / kResourcesDirectoryName;
+        const std::filesystem::path entity_sets_path = project_root / kEntitySetsDirectoryName;
         std::filesystem::create_directories(resources_path);
+        std::filesystem::create_directories(entity_sets_path);
 
         exportMeshAsObj(input.document, project_root / kDefaultMeshResourcePath);
         writeTextFile(project_root / kProjectFileName, serializeProjectFileJson(kDefaultMeshResourcePath));
         writeTextFile(project_root / kProjectLogFileName, joinLines(input.log_messages));
+        std::vector<std::filesystem::path> entity_set_paths;
+        entity_set_paths.reserve(input.document.entity_sets.size());
+        for (const mesh::EntitySet& entity_set : input.document.entity_sets) {
+            writeTextFile(
+                uniqueEntitySetFilePath(entity_sets_path, entity_set.name, &entity_set_paths),
+                serializeEntitySetFile(entity_set)
+            );
+        }
 
         const std::string checksum = computeProjectChecksum(project_root);
         writeTextFile(project_root / kConfigFileName, serializeConfigIni(checksum, input.document.up_axis));
@@ -464,7 +607,7 @@ ProjectArchiveSaveResult saveProjectArchive(
         const std::string zip_command =
             "/bin/sh -c \"cd " + shellEscape(project_root) +
             " && /usr/bin/zip -q -r " + shellEscape(temp_archive_path) +
-            " config.ini file.json project.log resources\"";
+            " config.ini file.json project.log resources entitysets\"";
         if (!runShellCommand(zip_command)) {
             return saveFailure("Failed to build project archive.");
         }

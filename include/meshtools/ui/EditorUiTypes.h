@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -12,6 +13,8 @@ namespace meshtools::ui {
 
 struct EditorUiState {
     mesh::MeshDocument* active_document = nullptr;
+    std::span<const mesh::EntitySet> entity_sets;
+    std::optional<std::size_t> selected_entity_set_index;
     std::span<const std::string> log_messages;
     float camera_yaw = 0.0F;
     float camera_pitch = 0.0F;
@@ -109,10 +112,21 @@ struct EditorUiLogEvent {
 };
 
 struct EditorUiActions {
+    struct EntitySetRenameRequest {
+        std::size_t index = 0;
+        std::string name;
+    };
+
     bool request_exit = false;
     bool request_open_document = false;
     bool request_save_project = false;
     bool request_invert_selection = false;
+    bool request_add_selection_to_entity_set = false;
+    bool request_create_entity_set_from_selection = false;
+    bool request_select_document_scene_item = false;
+    std::optional<std::size_t> request_add_selection_to_existing_entity_set_index;
+    std::optional<std::size_t> request_select_entity_set_index;
+    std::optional<EntitySetRenameRequest> request_rename_entity_set;
     ViewportCameraInput viewport_camera;
     ViewportSelectionRequest viewport_selection;
     std::vector<EditorUiLogEvent> event_logs;

@@ -47,6 +47,39 @@ std::string lowercaseExtension(const std::filesystem::path& path) {
     return extension;
 }
 
+std::string trim(std::string value) {
+    const auto is_space = [](unsigned char character) {
+        return std::isspace(character) != 0;
+    };
+
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), [&is_space](char character) {
+                    return !is_space(static_cast<unsigned char>(character));
+                }));
+    value.erase(
+        std::find_if(value.rbegin(), value.rend(), [&is_space](char character) {
+            return !is_space(static_cast<unsigned char>(character));
+        }).base(),
+        value.end()
+    );
+    return value;
+}
+
+void sortAndUnique(std::vector<std::uint32_t>& indices) {
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+}
+
+void normalizeEntitySelection(mesh::EntitySelection& selection) {
+    sortAndUnique(selection.edge_indices);
+    sortAndUnique(selection.face_indices);
+    sortAndUnique(selection.point_indices);
+}
+
+void appendUniqueIndices(std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& source) {
+    target.insert(target.end(), source.begin(), source.end());
+    sortAndUnique(target);
+}
+
 }  // namespace
 
 EditorApplication::EditorApplication(AppConfig config)
@@ -107,6 +140,8 @@ int EditorApplication::run() {
 
         const ui::EditorUiState ui_state{
             .active_document = active_document_ ? &active_document_.value() : nullptr,
+            .entity_sets = active_document_ ? std::span<const mesh::EntitySet>(active_document_->entity_sets) : std::span<const mesh::EntitySet>{},
+            .selected_entity_set_index = selected_entity_set_index_,
             .log_messages = log_messages_,
             .camera_yaw = viewport_renderer_.camera().yaw,
             .camera_pitch = viewport_renderer_.camera().pitch,
@@ -128,6 +163,7 @@ int EditorApplication::run() {
         if (actions.request_invert_selection) {
             handleInvertSelectionRequest();
         }
+        handleEntitySetActions(actions);
 
         if (actions.request_open_document) {
             openDocument();
@@ -248,6 +284,7 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     active_document_->display_name_override.clear();
     active_document_->up_axis = editor_ui_.fileImportSettings().up_axis;
     active_project_path_.clear();
+    selected_entity_set_index_.reset();
     appendLog(
         "IMPORT",
         "Loaded " + active_document_->displayName() +
@@ -267,6 +304,7 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
     active_document_ = std::move(result.document);
     viewport_renderer_.clearSelection();
     active_project_path_ = path;
+    selected_entity_set_index_.reset();
     log_messages_ = std::move(result.log_messages);
     appendLog(
         "PROJECT",
@@ -331,6 +369,7 @@ void EditorApplication::handleViewportSelectionRequest(const ui::ViewportSelecti
         );
     }
 
+    selected_entity_set_index_.reset();
     appendLog("SELECTION", "Selected (" + std::to_string(selection_count) + ") entities");
 }
 
@@ -346,7 +385,126 @@ void EditorApplication::handleInvertSelectionRequest() {
         .points = selection_filters.points,
     };
     const std::size_t selection_count = viewport_renderer_.invertSelection(selection_query);
+    selected_entity_set_index_.reset();
     appendLog("SELECTION", "Selected (" + std::to_string(selection_count) + ") entities");
+}
+
+void EditorApplication::handleEntitySetActions(const ui::EditorUiActions& actions) {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    if (actions.request_select_document_scene_item) {
+        selected_entity_set_index_.reset();
+    }
+
+    if (actions.request_select_entity_set_index.has_value()) {
+        selectEntitySet(*actions.request_select_entity_set_index);
+    }
+
+    if (actions.request_create_entity_set_from_selection) {
+        createEntitySetFromCurrentSelection();
+    }
+
+    if (actions.request_add_selection_to_existing_entity_set_index.has_value()) {
+        addCurrentSelectionToEntitySet(*actions.request_add_selection_to_existing_entity_set_index);
+    }
+
+    if (actions.request_rename_entity_set.has_value()) {
+        const std::size_t index = actions.request_rename_entity_set->index;
+        if (index < active_document_->entity_sets.size()) {
+            const std::string trimmed_name = trim(actions.request_rename_entity_set->name);
+            if (trimmed_name.empty()) {
+                appendLog("ENTITYSET", "Rename skipped because the entity set name was empty.");
+                return;
+            }
+
+            active_document_->entity_sets[index].name = trimmed_name;
+            appendLog("ENTITYSET", "Renamed entity set to " + trimmed_name + '.');
+        }
+    }
+}
+
+void EditorApplication::createEntitySetFromCurrentSelection() {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    mesh::EntitySelection selection = viewport_renderer_.currentSelection();
+    normalizeEntitySelection(selection);
+    if (selection.empty()) {
+        appendLog("ENTITYSET", "Create skipped because nothing is selected.");
+        return;
+    }
+
+    mesh::EntitySet entity_set{
+        .name = makeDefaultEntitySetName(),
+        .members = std::move(selection),
+    };
+    active_document_->entity_sets.push_back(entity_set);
+    selected_entity_set_index_ = active_document_->entity_sets.size() - 1U;
+    appendLog(
+        "ENTITYSET",
+        "Created " + entity_set.name + " (" + std::to_string(entity_set.members.totalCount()) + " entities)."
+    );
+}
+
+void EditorApplication::addCurrentSelectionToEntitySet(std::size_t index) {
+    if (!active_document_.has_value() || index >= active_document_->entity_sets.size()) {
+        return;
+    }
+
+    mesh::EntitySelection selection = viewport_renderer_.currentSelection();
+    normalizeEntitySelection(selection);
+    if (selection.empty()) {
+        appendLog("ENTITYSET", "Add skipped because nothing is selected.");
+        return;
+    }
+
+    mesh::EntitySet& entity_set = active_document_->entity_sets[index];
+    appendUniqueIndices(entity_set.members.edge_indices, selection.edge_indices);
+    appendUniqueIndices(entity_set.members.face_indices, selection.face_indices);
+    appendUniqueIndices(entity_set.members.point_indices, selection.point_indices);
+    selected_entity_set_index_ = index;
+    appendLog(
+        "ENTITYSET",
+        "Added selection to " + entity_set.name +
+            " (" + std::to_string(entity_set.members.totalCount()) + " entities total)."
+    );
+}
+
+void EditorApplication::selectEntitySet(std::size_t index) {
+    if (!active_document_.has_value() || index >= active_document_->entity_sets.size()) {
+        return;
+    }
+
+    viewport_renderer_.setSelection(active_document_->entity_sets[index].members);
+    selected_entity_set_index_ = index;
+    appendLog(
+        "ENTITYSET",
+        "Selected " + active_document_->entity_sets[index].name +
+            " (" + std::to_string(active_document_->entity_sets[index].members.totalCount()) + " entities)."
+    );
+}
+
+std::string EditorApplication::makeDefaultEntitySetName() const {
+    std::size_t suffix = 1;
+    while (active_document_.has_value()) {
+        const std::string candidate = "Entity Set " + std::to_string(suffix);
+        const auto match = std::find_if(
+            active_document_->entity_sets.begin(),
+            active_document_->entity_sets.end(),
+            [&candidate](const mesh::EntitySet& entity_set) {
+                return entity_set.name == candidate;
+            }
+        );
+        if (match == active_document_->entity_sets.end()) {
+            return candidate;
+        }
+        ++suffix;
+    }
+
+    return "Entity Set 1";
 }
 
 }  // namespace meshtools::app

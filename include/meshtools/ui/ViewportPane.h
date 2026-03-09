@@ -26,6 +26,7 @@ class ViewportPane {
         std::string_view edge_shortcut,
         std::string_view face_shortcut,
         std::string_view point_shortcut,
+        std::string_view add_to_entity_set_shortcut,
         std::string_view invert_selection_shortcut,
         EditorUiActions* actions,
         const std::function<void()>& on_toggle_wireframe,
@@ -61,6 +62,7 @@ class ViewportPane {
         const ImVec2& top_right,
         std::span<const SegmentedControlItem> items
     ) const;
+    void queueEntitySetPicker(const ImVec2& mouse_position);
 
     GLFWwindow* window_ = nullptr;
     ImVec2 render_size_ = ImVec2(1280.0F, 720.0F);
@@ -68,6 +70,8 @@ class ViewportPane {
     std::uint32_t texture_id_ = 0;
     DragSelectionState drag_selection_{};
     bool right_click_context_eligible_ = false;
+    bool entity_set_picker_pending_open_ = false;
+    ImVec2 entity_set_picker_anchor_ = ImVec2(0.0F, 0.0F);
 };
 
 }  // namespace meshtools::ui

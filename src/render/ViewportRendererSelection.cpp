@@ -20,6 +20,17 @@ bool containsIndex(const std::vector<std::uint32_t>& indices, std::uint32_t inde
     return std::find(indices.begin(), indices.end(), index) != indices.end();
 }
 
+void normalizeSelectionIndices(std::vector<std::uint32_t>& indices, std::size_t max_count) {
+    indices.erase(
+        std::remove_if(indices.begin(), indices.end(), [max_count](std::uint32_t index) {
+            return index >= max_count;
+        }),
+        indices.end()
+    );
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+}
+
 void addMissingIndices(std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& hits) {
     for (const std::uint32_t hit_index : hits) {
         if (!containsIndex(target, hit_index)) {
@@ -586,6 +597,32 @@ void ViewportRenderer::clearSelection() {
     face_selection_anchor_.reset();
     edge_selection_anchor_.reset();
     selection_summary_ = SelectionSummary{};
+    updateHighlightBuffers();
+}
+
+mesh::EntitySelection ViewportRenderer::currentSelection() const {
+    return mesh::EntitySelection{
+        .edge_indices = selected_edge_indices_,
+        .face_indices = selected_face_indices_,
+        .point_indices = selected_point_indices_,
+    };
+}
+
+void ViewportRenderer::setSelection(mesh::EntitySelection selection) {
+    normalizeSelectionIndices(selection.edge_indices, unique_edges_.size());
+    normalizeSelectionIndices(selection.face_indices, normalized_triangles_.size());
+    normalizeSelectionIndices(selection.point_indices, normalized_positions_.size());
+
+    selected_edge_indices_ = std::move(selection.edge_indices);
+    selected_face_indices_ = std::move(selection.face_indices);
+    selected_point_indices_ = std::move(selection.point_indices);
+    face_selection_anchor_.reset();
+    edge_selection_anchor_.reset();
+    selection_summary_ = SelectionSummary{
+        .edge_count = selected_edge_indices_.size(),
+        .face_count = selected_face_indices_.size(),
+        .point_count = selected_point_indices_.size(),
+    };
     updateHighlightBuffers();
 }
 

@@ -33,8 +33,13 @@ class EditorApplication {
     void loadMeshDocument(const std::filesystem::path& path);
     void loadProjectDocument(const std::filesystem::path& path);
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
+    void handleEntitySetActions(const ui::EditorUiActions& actions);
     void handleInvertSelectionRequest();
     void handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request);
+    void createEntitySetFromCurrentSelection();
+    void addCurrentSelectionToEntitySet(std::size_t index);
+    void selectEntitySet(std::size_t index);
+    [[nodiscard]] std::string makeDefaultEntitySetName() const;
 
     AppConfig config_;
     platform::GlfwWindow window_;
@@ -42,6 +47,7 @@ class EditorApplication {
     ui::EditorUi editor_ui_;
     std::optional<mesh::MeshDocument> active_document_;
     std::filesystem::path active_project_path_;
+    std::optional<std::size_t> selected_entity_set_index_;
     std::vector<std::string> log_messages_;
     ui::ViewportCameraInput pending_viewport_camera_input_;
 };

@@ -1,19 +1,76 @@
 #include "meshtools/ui/LeftPane.h"
 
+#include <algorithm>
+#include <cstring>
+
 #include "meshtools/ui/EditorDockLayout.h"
 
 namespace meshtools::ui {
 
-void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) const {
+void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) {
     constexpr ImGuiWindowFlags pane_flags =
         ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoMove;
+
+    if (!state.active_document || (renaming_entity_set_index_.has_value() && *renaming_entity_set_index_ >= state.entity_sets.size())) {
+        renaming_entity_set_index_.reset();
+        focus_entity_set_rename_ = false;
+    }
 
     ImGui::Begin(kEditorLeftPaneWindowName, nullptr, pane_flags);
     ImGui::TextUnformatted("Scene");
     ImGui::Separator();
     if (state.active_document != nullptr) {
-        ImGui::Selectable(state.active_document->displayName().c_str(), true);
+        const bool document_selected = !state.selected_entity_set_index.has_value();
+        if (ImGui::Selectable(state.active_document->displayName().c_str(), document_selected) && actions != nullptr) {
+            actions->request_select_document_scene_item = true;
+        }
+
+        ImGui::Indent();
+        for (std::size_t index = 0; index < state.entity_sets.size(); ++index) {
+            const mesh::EntitySet& entity_set = state.entity_sets[index];
+            const bool is_selected =
+                state.selected_entity_set_index.has_value() && *state.selected_entity_set_index == index;
+            ImGui::PushID(static_cast<int>(index));
+
+            if (renaming_entity_set_index_.has_value() && *renaming_entity_set_index_ == index) {
+                if (focus_entity_set_rename_) {
+                    ImGui::SetKeyboardFocusHere();
+                    focus_entity_set_rename_ = false;
+                }
+
+                const bool submitted = ImGui::InputText(
+                    "##EntitySetRename",
+                    rename_buffer_.data(),
+                    rename_buffer_.size(),
+                    ImGuiInputTextFlags_EnterReturnsTrue |
+                        ImGuiInputTextFlags_AutoSelectAll
+                );
+                const bool item_deactivated = ImGui::IsItemDeactivatedAfterEdit();
+                const bool cancel_requested = ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+                if ((submitted || item_deactivated) && actions != nullptr) {
+                    actions->request_rename_entity_set = EditorUiActions::EntitySetRenameRequest{
+                        .index = index,
+                        .name = rename_buffer_.data(),
+                    };
+                    renaming_entity_set_index_.reset();
+                } else if (cancel_requested) {
+                    renaming_entity_set_index_.reset();
+                }
+            } else {
+                if (ImGui::Selectable(entity_set.name.c_str(), is_selected) && actions != nullptr) {
+                    actions->request_select_entity_set_index = index;
+                }
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    beginRenamingEntitySet(index, entity_set.name);
+                }
+            }
+            ImGui::PopID();
+        }
+        if (state.entity_sets.empty()) {
+            ImGui::TextDisabled("No entity sets");
+        }
+        ImGui::Unindent();
     } else {
         ImGui::TextDisabled("No project loaded");
     }
@@ -51,6 +108,16 @@ void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) const 
     }
 
     ImGui::End();
+}
+
+void LeftPane::beginRenamingEntitySet(std::size_t index, std::string_view current_name) {
+    renaming_entity_set_index_ = index;
+    focus_entity_set_rename_ = true;
+    std::fill(rename_buffer_.begin(), rename_buffer_.end(), '\0');
+
+    const std::size_t copy_length = std::min(current_name.size(), rename_buffer_.size() - 1U);
+    std::memcpy(rename_buffer_.data(), current_name.data(), copy_length);
+    rename_buffer_[copy_length] = '\0';
 }
 
 }  // namespace meshtools::ui

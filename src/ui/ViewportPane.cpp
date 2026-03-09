@@ -15,6 +15,8 @@ constexpr ImVec2 kOverlayButtonSize = ImVec2(22.0F, 20.0F);
 constexpr float kOverlayGroupGap = 8.0F;
 constexpr float kOverlayPadding = 10.0F;
 constexpr float kSelectionDragThreshold = 4.0F;
+constexpr const char* kViewportContextMenuName = "ViewportContextMenu";
+constexpr const char* kEntitySetPickerPopupName = "ViewportEntitySetPicker";
 
 bool isCmdOrCtrlHeld(GLFWwindow* window, const ImGuiIO& io) {
     if (window != nullptr) {
@@ -75,6 +77,7 @@ void ViewportPane::draw(
     std::string_view edge_shortcut,
     std::string_view face_shortcut,
     std::string_view point_shortcut,
+    std::string_view add_to_entity_set_shortcut,
     std::string_view invert_selection_shortcut,
     EditorUiActions* actions,
     const std::function<void()>& on_toggle_wireframe,
@@ -220,6 +223,23 @@ void ViewportPane::draw(
     );
     const char* invert_selection_shortcut_label =
         invert_selection_shortcut.empty() ? nullptr : invert_selection_shortcut.data();
+    const char* add_to_entity_set_shortcut_label =
+        add_to_entity_set_shortcut.empty() ? nullptr : add_to_entity_set_shortcut.data();
+    const bool can_add_selection_to_entity_set =
+        actions != nullptr &&
+        state.active_document != nullptr &&
+        state.selection_summary.totalCount() > 0;
+
+    if (actions != nullptr && actions->request_add_selection_to_entity_set) {
+        actions->request_add_selection_to_entity_set = false;
+        if (can_add_selection_to_entity_set) {
+            if (state.entity_sets.empty()) {
+                actions->request_create_entity_set_from_selection = true;
+            } else {
+                queueEntitySetPicker(ImGui::GetMousePos());
+            }
+        }
+    }
 
     const ViewportGizmoResult gizmo_result = drawViewportGizmo(
         ViewportGizmoConfig{
@@ -233,7 +253,7 @@ void ViewportPane::draw(
         state.active_document,
         actions
     );
-    const bool viewport_context_open = ImGui::IsPopupOpen("ViewportContextMenu");
+    const bool viewport_context_open = ImGui::IsPopupOpen(kViewportContextMenuName);
 
     if (actions != nullptr && drag_selection_.active) {
         ImGuiIO& io = ImGui::GetIO();
@@ -305,7 +325,7 @@ void ViewportPane::draw(
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
             !mouse_over_controls &&
             right_click_context_eligible_) {
-            ImGui::OpenPopup("ViewportContextMenu");
+            ImGui::OpenPopup(kViewportContextMenuName);
         }
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
             right_click_context_eligible_ = false;
@@ -345,9 +365,51 @@ void ViewportPane::draw(
         draw_list->AddRect(selection_min, selection_max, IM_COL32(214, 218, 224, 220), 0.0F, 0, 1.5F);
     }
 
-    if (ImGui::BeginPopup("ViewportContextMenu")) {
+    if (ImGui::BeginPopup(kViewportContextMenuName)) {
+        ImGui::BeginDisabled(!can_add_selection_to_entity_set);
+        if (ImGui::MenuItem("Add to Entity Set", add_to_entity_set_shortcut_label)) {
+            if (state.entity_sets.empty()) {
+                if (actions != nullptr) {
+                    actions->request_create_entity_set_from_selection = true;
+                }
+            } else {
+                queueEntitySetPicker(ImGui::GetMousePos());
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::Separator();
         if (ImGui::MenuItem("Invert selection", invert_selection_shortcut_label)) {
             on_invert_selection();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (entity_set_picker_pending_open_) {
+        ImGui::SetNextWindowPos(entity_set_picker_anchor_, ImGuiCond_Appearing);
+        ImGui::OpenPopup(kEntitySetPickerPopupName);
+        entity_set_picker_pending_open_ = false;
+    } else if (ImGui::IsPopupOpen(kEntitySetPickerPopupName)) {
+        ImGui::SetNextWindowPos(entity_set_picker_anchor_, ImGuiCond_Appearing);
+    }
+
+    if (ImGui::BeginPopup(kEntitySetPickerPopupName)) {
+        if (ImGui::Selectable("New Entity Set")) {
+            if (actions != nullptr) {
+                actions->request_create_entity_set_from_selection = true;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::Separator();
+        for (std::size_t index = 0; index < state.entity_sets.size(); ++index) {
+            const mesh::EntitySet& entity_set = state.entity_sets[index];
+            ImGui::PushID(static_cast<int>(index));
+            if (ImGui::Selectable(entity_set.name.c_str())) {
+                if (actions != nullptr) {
+                    actions->request_add_selection_to_existing_entity_set_index = index;
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::PopID();
         }
         ImGui::EndPopup();
     }
@@ -418,6 +480,11 @@ int ViewportPane::drawSegmentedControl(
     }
     ImGui::PopID();
     return clicked_index;
+}
+
+void ViewportPane::queueEntitySetPicker(const ImVec2& mouse_position) {
+    entity_set_picker_anchor_ = ImVec2(mouse_position.x + 6.0F, mouse_position.y + 6.0F);
+    entity_set_picker_pending_open_ = true;
 }
 
 }  // namespace meshtools::ui

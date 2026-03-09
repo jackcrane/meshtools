@@ -15,6 +15,7 @@ enum class ShortcutCommand {
     ToggleEdgeSelection,
     ToggleFaceSelection,
     TogglePointSelection,
+    AddSelectionToEntitySet,
     InvertSelection,
     ResetViewport,
 };
