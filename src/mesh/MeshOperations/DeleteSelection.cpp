@@ -115,8 +115,13 @@ ModifyDeleteResult applyModifyDelete(
     }
 
     result.deleted_face_count = static_cast<std::size_t>(std::count(faces_to_delete.begin(), faces_to_delete.end(), true));
+    result.deleted_edge_count =
+        static_cast<std::size_t>(std::count(explicit_edges_to_delete.begin(), explicit_edges_to_delete.end(), true));
     result.deleted_point_count = static_cast<std::size_t>(std::count(points_to_delete.begin(), points_to_delete.end(), true));
-    result.changed = result.deleted_face_count > 0 || result.deleted_point_count > 0;
+    result.changed =
+        result.deleted_face_count > 0 ||
+        result.deleted_edge_count > 0 ||
+        result.deleted_point_count > 0;
     if (!result.changed) {
         return result;
     }

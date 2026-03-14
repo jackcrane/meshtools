@@ -31,6 +31,7 @@ struct ModifyDeleteOptions {
 struct ModifyDeleteResult {
     bool changed = false;
     std::size_t deleted_face_count = 0;
+    std::size_t deleted_edge_count = 0;
     std::size_t deleted_point_count = 0;
     ModifyDeleteAvailability deleted_selection;
 };

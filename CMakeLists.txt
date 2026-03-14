@@ -50,9 +50,17 @@ add_library(meshtools_core STATIC
     src/mesh/MeshDocument.cpp
     src/mesh/MeshOperations/CreateFace.cpp
     src/mesh/MeshOperations/DeleteSelection.cpp
-    src/mesh/MeshOperations/Detail.cpp
     src/mesh/MeshOperations/Normals.cpp
+    src/mesh/MeshOperations/PlaneGeometry.cpp
+    src/mesh/MeshOperations/Polygon.cpp
+    src/mesh/MeshOperations/Projection2D.cpp
     src/mesh/MeshOperations/ProjectEdge.cpp
+    src/mesh/MeshOperations/ProjectTargets.cpp
+    src/mesh/MeshOperations/Quantization.cpp
+    src/mesh/MeshOperations/Remap.cpp
+    src/mesh/MeshOperations/Topology.cpp
+    src/mesh/MeshOperations/Triangulation.cpp
+    src/mesh/MeshOperations/VectorMath.cpp
     src/platform/GlfwWindow.cpp
     src/render/ViewportRenderer.cpp
     src/render/ViewportRendererDetail.cpp

@@ -587,6 +587,7 @@ void EditorApplication::handleModifyDeleteRequest(const ui::EditorUiActions& act
     appendLog(
         "MODIFY",
         "Deleted " + std::to_string(result.deleted_face_count) + " faces and " +
+            std::to_string(result.deleted_edge_count) + " edges and " +
             std::to_string(result.deleted_point_count) + " points."
     );
 }
