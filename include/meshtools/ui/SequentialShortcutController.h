@@ -18,6 +18,8 @@ enum class ShortcutCommand {
     AddSelectionToEntitySet,
     ExpandSelection,
     InvertSelection,
+    ModifyDelete,
+    ModifyCreateFace,
     ResetViewport,
 };
 

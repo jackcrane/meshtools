@@ -36,6 +36,8 @@ class EditorApplication {
     void handleEntitySetActions(const ui::EditorUiActions& actions);
     void handleExpandSelectionActions(const ui::EditorUiActions& actions);
     void handleInvertSelectionRequest();
+    void handleModifyCreateFaceRequest(const ui::EditorUiActions& actions);
+    void handleModifyDeleteRequest(const ui::EditorUiActions& actions);
     void handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request);
     void createEntitySetFromCurrentSelection();
     void createEntitySetFromSelection(mesh::EntitySelection selection);
@@ -55,6 +57,7 @@ class EditorApplication {
     std::vector<std::string> expand_selection_feedback_reasons_;
     ui::EditorUiState::ExpandSelectionFeedback expand_selection_feedback_{};
     ui::ViewportCameraInput pending_viewport_camera_input_;
+    std::optional<mesh::EntitySelection> pending_renderer_selection_;
 };
 
 }  // namespace meshtools::app

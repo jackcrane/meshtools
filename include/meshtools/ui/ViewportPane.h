@@ -29,6 +29,8 @@ class ViewportPane {
         std::string_view add_to_entity_set_shortcut,
         std::string_view expand_selection_shortcut,
         std::string_view invert_selection_shortcut,
+        std::string_view modify_delete_shortcut,
+        std::string_view modify_create_face_shortcut,
         EditorUiActions* actions,
         const std::function<void()>& on_toggle_wireframe,
         const std::function<void()>& on_toggle_shade_triangles,
@@ -40,6 +42,7 @@ class ViewportPane {
     );
 
     void openExpandSelectionDialog();
+    void openModifyDeleteDialog();
     void setTexture(std::uint32_t texture_id);
     [[nodiscard]] ImVec2 renderSize() const;
     [[nodiscard]] ImVec2 renderTargetSize(const GraphicsQualitySettings& graphics_quality_settings) const;
@@ -71,6 +74,7 @@ class ViewportPane {
     ) const;
     void queueEntitySetPicker(const ImVec2& mouse_position, EntitySetPickerMode mode = EntitySetPickerMode::CurrentSelection);
     void drawExpandSelectionDialog(const EditorUiState& state, EditorUiActions* actions);
+    void drawModifyDeleteDialog(const EditorUiState& state, EditorUiActions* actions);
 
     GLFWwindow* window_ = nullptr;
     ImVec2 render_size_ = ImVec2(1280.0F, 720.0F);
@@ -85,6 +89,9 @@ class ViewportPane {
     bool expand_selection_dialog_pending_open_ = false;
     bool close_expand_selection_dialog_ = false;
     EditorUiActions::ExpandSelectionConfig expand_selection_config_{};
+    bool modify_delete_dialog_open_ = false;
+    bool modify_delete_dialog_pending_open_ = false;
+    EditorUiActions::ModifyDeleteRequest modify_delete_request_{};
 };
 
 }  // namespace meshtools::ui

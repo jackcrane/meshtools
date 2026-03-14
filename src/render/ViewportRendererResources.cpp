@@ -227,21 +227,31 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
         normalized_positions_.push_back(normalized_position);
     }
 
-    std::vector<mesh::Vec3> accumulated_normals(document->positions.size(), mesh::Vec3{});
-    for (const mesh::Triangle& triangle : document->triangles) {
-        const mesh::Vec3 edge_ab = detail::subtract(normalized_positions_[triangle.b], normalized_positions_[triangle.a]);
-        const mesh::Vec3 edge_ac = detail::subtract(normalized_positions_[triangle.c], normalized_positions_[triangle.a]);
-        const mesh::Vec3 face_normal = detail::normalize(detail::cross(edge_ab, edge_ac));
-
-        accumulated_normals[triangle.a] = detail::add(accumulated_normals[triangle.a], face_normal);
-        accumulated_normals[triangle.b] = detail::add(accumulated_normals[triangle.b], face_normal);
-        accumulated_normals[triangle.c] = detail::add(accumulated_normals[triangle.c], face_normal);
-    }
-
     std::vector<Vertex> vertices;
     vertices.reserve(normalized_positions_.size());
+    const bool has_document_normals = document->normals.size() == document->positions.size();
+    std::vector<mesh::Vec3> accumulated_normals;
+    if (!has_document_normals) {
+        accumulated_normals.assign(document->positions.size(), mesh::Vec3{});
+        for (const mesh::Triangle& triangle : document->triangles) {
+            const mesh::Vec3 edge_ab = detail::subtract(normalized_positions_[triangle.b], normalized_positions_[triangle.a]);
+            const mesh::Vec3 edge_ac = detail::subtract(normalized_positions_[triangle.c], normalized_positions_[triangle.a]);
+            const mesh::Vec3 face_normal = detail::normalize(detail::cross(edge_ab, edge_ac));
+
+            accumulated_normals[triangle.a] = detail::add(accumulated_normals[triangle.a], face_normal);
+            accumulated_normals[triangle.b] = detail::add(accumulated_normals[triangle.b], face_normal);
+            accumulated_normals[triangle.c] = detail::add(accumulated_normals[triangle.c], face_normal);
+        }
+    }
+
     for (std::size_t index = 0; index < normalized_positions_.size(); ++index) {
-        const mesh::Vec3 normal = detail::normalize(accumulated_normals[index]);
+        mesh::Vec3 normal = has_document_normals
+            ? document->normals[index]
+            : detail::normalize(accumulated_normals[index]);
+        if (up_axis == UpAxis::Z) {
+            normal = detail::rotateXAxisNegative90(normal);
+        }
+        normal = detail::normalize(normal);
         vertices.push_back(Vertex{
             {normalized_positions_[index].x, normalized_positions_[index].y, normalized_positions_[index].z},
             {normal.x, normal.y, normal.z},

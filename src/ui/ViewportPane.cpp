@@ -18,6 +18,7 @@ constexpr float kSelectionDragThreshold = 4.0F;
 constexpr const char* kViewportContextMenuName = "ViewportContextMenu";
 constexpr const char* kEntitySetPickerPopupName = "ViewportEntitySetPicker";
 constexpr const char* kExpandSelectionDialogName = "Expand Selection";
+constexpr const char* kModifyDeleteDialogName = "What to delete";
 
 bool isCmdOrCtrlHeld(GLFWwindow* window, const ImGuiIO& io) {
     if (window != nullptr) {
@@ -81,6 +82,8 @@ void ViewportPane::draw(
     std::string_view add_to_entity_set_shortcut,
     std::string_view expand_selection_shortcut,
     std::string_view invert_selection_shortcut,
+    std::string_view modify_delete_shortcut,
+    std::string_view modify_create_face_shortcut,
     EditorUiActions* actions,
     const std::function<void()>& on_toggle_wireframe,
     const std::function<void()>& on_toggle_shade_triangles,
@@ -229,10 +232,16 @@ void ViewportPane::draw(
         add_to_entity_set_shortcut.empty() ? nullptr : add_to_entity_set_shortcut.data();
     const char* expand_selection_shortcut_label =
         expand_selection_shortcut.empty() ? nullptr : expand_selection_shortcut.data();
+    const char* modify_delete_shortcut_label =
+        modify_delete_shortcut.empty() ? nullptr : modify_delete_shortcut.data();
+    const char* modify_create_face_shortcut_label =
+        modify_create_face_shortcut.empty() ? nullptr : modify_create_face_shortcut.data();
     const bool can_add_selection_to_entity_set =
         actions != nullptr &&
         state.active_document != nullptr &&
         state.selection_summary.totalCount() > 0;
+    const bool can_modify_delete = state.modify_delete_availability.any();
+    const bool can_modify_create_face = state.modify_create_face_availability.any();
 
     if (actions != nullptr && actions->request_add_selection_to_entity_set) {
         actions->request_add_selection_to_entity_set = false;
@@ -388,6 +397,16 @@ void ViewportPane::draw(
         if (ImGui::MenuItem("Invert selection", invert_selection_shortcut_label)) {
             on_invert_selection();
         }
+        ImGui::BeginDisabled(!can_modify_delete);
+        if (ImGui::MenuItem("Modify Delete", modify_delete_shortcut_label)) {
+            openModifyDeleteDialog();
+        }
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(!can_modify_create_face);
+        if (ImGui::MenuItem("Modify Create Face", modify_create_face_shortcut_label) && actions != nullptr) {
+            actions->request_modify_create_face = true;
+        }
+        ImGui::EndDisabled();
         ImGui::EndPopup();
     }
 
@@ -439,6 +458,7 @@ void ViewportPane::draw(
     }
 
     drawExpandSelectionDialog(state, actions);
+    drawModifyDeleteDialog(state, actions);
 
     ImGui::End();
 }
@@ -446,6 +466,10 @@ void ViewportPane::draw(
 void ViewportPane::openExpandSelectionDialog() {
     expand_selection_dialog_pending_open_ = true;
     close_expand_selection_dialog_ = false;
+}
+
+void ViewportPane::openModifyDeleteDialog() {
+    modify_delete_dialog_pending_open_ = true;
 }
 
 void ViewportPane::setTexture(std::uint32_t texture_id) {
@@ -669,6 +693,95 @@ void ViewportPane::drawExpandSelectionDialog(const EditorUiState& state, EditorU
     }
 
     expand_selection_dialog_open_ = keep_dialog_open && ImGui::IsPopupOpen(kExpandSelectionDialogName);
+}
+
+void ViewportPane::drawModifyDeleteDialog(const EditorUiState& state, EditorUiActions* actions) {
+    if (modify_delete_dialog_pending_open_) {
+        modify_delete_dialog_pending_open_ = false;
+        if (state.modify_delete_availability.any()) {
+            modify_delete_request_ = EditorUiActions::ModifyDeleteRequest{
+                .faces = state.modify_delete_availability.face_count > 0,
+                .inside_edges = state.modify_delete_availability.inside_edge_count > 0,
+                .outside_edges = state.modify_delete_availability.outside_edge_count > 0,
+                .points = state.modify_delete_availability.point_count > 0,
+            };
+            ImGui::OpenPopup(kModifyDeleteDialogName);
+            modify_delete_dialog_open_ = true;
+        }
+    }
+
+    if (!modify_delete_dialog_open_ && !ImGui::IsPopupOpen(kModifyDeleteDialogName)) {
+        return;
+    }
+
+    if (!state.modify_delete_availability.any()) {
+        bool keep_dialog_open = false;
+        if (ImGui::BeginPopupModal(kModifyDeleteDialogName, &keep_dialog_open, ImGuiWindowFlags_AlwaysAutoResize)) {
+            modify_delete_dialog_open_ = false;
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        modify_delete_dialog_open_ = false;
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(220.0F, 0.0F), ImGuiCond_Appearing);
+    bool keep_dialog_open = modify_delete_dialog_open_;
+    if (ImGui::BeginPopupModal(kModifyDeleteDialogName, &keep_dialog_open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (actions != nullptr) {
+            actions->modify_delete_dialog_open = true;
+        }
+
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            keep_dialog_open = false;
+            modify_delete_dialog_open_ = false;
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        if (state.modify_delete_availability.face_count > 0) {
+            ImGui::Checkbox("Faces", &modify_delete_request_.faces);
+        }
+        if (state.modify_delete_availability.inside_edge_count > 0) {
+            ImGui::Checkbox("Inside Edges", &modify_delete_request_.inside_edges);
+        }
+        if (state.modify_delete_availability.outside_edge_count > 0) {
+            ImGui::Checkbox("Outside Edges", &modify_delete_request_.outside_edges);
+        }
+        if (state.modify_delete_availability.point_count > 0) {
+            ImGui::Checkbox("Points", &modify_delete_request_.points);
+        }
+
+        const bool has_selection =
+            modify_delete_request_.faces ||
+            modify_delete_request_.inside_edges ||
+            modify_delete_request_.outside_edges ||
+            modify_delete_request_.points;
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::BeginDisabled(!has_selection);
+        if (ImGui::Button("Delete", ImVec2(88.0F, 0.0F)) && actions != nullptr) {
+            actions->request_modify_delete = modify_delete_request_;
+            keep_dialog_open = false;
+            modify_delete_dialog_open_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(88.0F, 0.0F))) {
+            keep_dialog_open = false;
+            modify_delete_dialog_open_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        modify_delete_dialog_open_ = keep_dialog_open;
+        ImGui::EndPopup();
+        return;
+    }
+
+    modify_delete_dialog_open_ = keep_dialog_open && ImGui::IsPopupOpen(kModifyDeleteDialogName);
 }
 
 }  // namespace meshtools::ui

@@ -16,6 +16,8 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version)
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_E, "Add to Entity Set", ShortcutCommand::AddSelectionToEntitySet);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_X, "Expand selection", ShortcutCommand::ExpandSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_I, "Invert selection", ShortcutCommand::InvertSelection);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_M, ImGuiKey_D, "Modify Delete", ShortcutCommand::ModifyDelete);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_M, ImGuiKey_F, "Modify Create Face", ShortcutCommand::ModifyCreateFace);
     sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_R, "Reset viewport", ShortcutCommand::ResetViewport);
 }
 
@@ -27,8 +29,8 @@ void EditorUi::beginFrame() const {
 
 EditorUiActions EditorUi::draw(const EditorUiState& state) {
     EditorUiActions actions;
-    sequential_shortcuts_.handleInput([this, &actions](ShortcutCommand command) {
-        triggerShortcutAction(command, &actions);
+    sequential_shortcuts_.handleInput([this, &state, &actions](ShortcutCommand command) {
+        triggerShortcutAction(command, state, &actions);
     });
     const std::string wireframe_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ToggleWireframe);
@@ -48,6 +50,10 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ExpandSelection);
     const std::string invert_selection_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::InvertSelection);
+    const std::string modify_delete_shortcut =
+        sequential_shortcuts_.shortcutLabel(ShortcutCommand::ModifyDelete);
+    const std::string modify_create_face_shortcut =
+        sequential_shortcuts_.shortcutLabel(ShortcutCommand::ModifyCreateFace);
 
     dock_layout_.draw();
     left_pane_.draw(state, &actions);
@@ -67,6 +73,8 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         add_to_entity_set_shortcut,
         expand_selection_shortcut,
         invert_selection_shortcut,
+        modify_delete_shortcut,
+        modify_create_face_shortcut,
         &actions,
         [this, &actions]() { toggleWireframe(viewport_display_settings_, &actions); },
         [this, &actions]() { toggleShadeTriangles(viewport_display_settings_, &actions); },
@@ -82,8 +90,8 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         file_import_settings_,
         &actions
     );
-    sequential_shortcuts_.drawMenu([this, &actions](ShortcutCommand command) {
-        triggerShortcutAction(command, &actions);
+    sequential_shortcuts_.drawMenu([this, &state, &actions](ShortcutCommand command) {
+        triggerShortcutAction(command, state, &actions);
     });
 
     return actions;
@@ -125,7 +133,7 @@ ImVec2 EditorUi::viewportRenderTargetSize() const {
     return viewport_pane_.renderTargetSize(graphics_quality_settings_);
 }
 
-void EditorUi::triggerShortcutAction(ShortcutCommand action, EditorUiActions* actions) {
+void EditorUi::triggerShortcutAction(ShortcutCommand action, const EditorUiState& state, EditorUiActions* actions) {
     switch (action) {
         case ShortcutCommand::ToggleWireframe:
             toggleWireframe(viewport_display_settings_, actions);
@@ -156,6 +164,16 @@ void EditorUi::triggerShortcutAction(ShortcutCommand action, EditorUiActions* ac
             return;
         case ShortcutCommand::InvertSelection:
             requestInvertSelection(actions);
+            return;
+        case ShortcutCommand::ModifyDelete:
+            if (state.modify_delete_availability.any()) {
+                viewport_pane_.openModifyDeleteDialog();
+            }
+            return;
+        case ShortcutCommand::ModifyCreateFace:
+            if (state.modify_create_face_availability.any()) {
+                actions->request_modify_create_face = true;
+            }
             return;
     }
 }

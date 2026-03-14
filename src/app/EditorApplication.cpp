@@ -160,6 +160,10 @@ int EditorApplication::run() {
                         : render::ViewportRenderer::UpAxis::Z,
             }
         );
+        if (pending_renderer_selection_.has_value()) {
+            viewport_renderer_.setSelection(*pending_renderer_selection_);
+            pending_renderer_selection_.reset();
+        }
         editor_ui_.setViewportTexture(viewport_renderer_.textureId());
 
         const ImVec4& clear_color = editor_ui_.clearColor();
@@ -167,6 +171,14 @@ int EditorApplication::run() {
         editor_ui_.beginFrame();
 
         const ui::EditorUiState ui_state{
+            .modify_delete_availability =
+                active_document_
+                    ? mesh::computeModifyDeleteAvailability(active_document_.value(), viewport_renderer_.currentSelection())
+                    : mesh::ModifyDeleteAvailability{},
+            .modify_create_face_availability =
+                active_document_
+                    ? mesh::computeModifyCreateFaceAvailability(active_document_.value(), viewport_renderer_.currentSelection())
+                    : mesh::ModifyCreateFaceAvailability{},
             .active_document = active_document_ ? &active_document_.value() : nullptr,
             .entity_sets = active_document_ ? std::span<const mesh::EntitySet>(active_document_->entity_sets) : std::span<const mesh::EntitySet>{},
             .selected_entity_set_index = selected_entity_set_index_,
@@ -200,6 +212,8 @@ int EditorApplication::run() {
             handleInvertSelectionRequest();
         }
         handleExpandSelectionActions(actions);
+        handleModifyCreateFaceRequest(actions);
+        handleModifyDeleteRequest(actions);
         handleEntitySetActions(actions);
 
         if (actions.request_open_document) {
@@ -317,12 +331,14 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     }
 
     active_document_ = std::move(result.document);
+    mesh::ensureRenderableNormals(&active_document_.value());
     viewport_renderer_.clearSelection();
     viewport_renderer_.clearExpandSelectionPreview();
     active_document_->display_name_override.clear();
     active_document_->up_axis = editor_ui_.fileImportSettings().up_axis;
     active_project_path_.clear();
     selected_entity_set_index_.reset();
+    pending_renderer_selection_.reset();
     expand_selection_feedback_reasons_.clear();
     expand_selection_feedback_ = {};
     appendLog(
@@ -342,10 +358,12 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
     }
 
     active_document_ = std::move(result.document);
+    mesh::ensureRenderableNormals(&active_document_.value());
     viewport_renderer_.clearSelection();
     viewport_renderer_.clearExpandSelectionPreview();
     active_project_path_ = path;
     selected_entity_set_index_.reset();
+    pending_renderer_selection_.reset();
     log_messages_ = std::move(result.log_messages);
     expand_selection_feedback_reasons_.clear();
     expand_selection_feedback_ = {};
@@ -430,6 +448,62 @@ void EditorApplication::handleInvertSelectionRequest() {
     const std::size_t selection_count = viewport_renderer_.invertSelection(selection_query);
     selected_entity_set_index_.reset();
     appendLog("SELECTION", "Selected (" + std::to_string(selection_count) + ") entities");
+}
+
+void EditorApplication::handleModifyCreateFaceRequest(const ui::EditorUiActions& actions) {
+    if (!active_document_.has_value() || !actions.request_modify_create_face) {
+        return;
+    }
+
+    const mesh::ModifyCreateFaceResult result =
+        mesh::applyModifyCreateFace(&active_document_.value(), viewport_renderer_.currentSelection());
+    if (!result.changed) {
+        appendLog("MODIFY", "Create face skipped because the selection could not form a face.");
+        return;
+    }
+
+    viewport_renderer_.clearSelection();
+    viewport_renderer_.clearExpandSelectionPreview();
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
+    selected_entity_set_index_.reset();
+    pending_renderer_selection_ = mesh::EntitySelection{
+        .edge_indices = {},
+        .face_indices = result.created_face_indices,
+        .point_indices = {},
+    };
+    appendLog("MODIFY", "Created " + std::to_string(result.created_face_count) + " faces.");
+}
+
+void EditorApplication::handleModifyDeleteRequest(const ui::EditorUiActions& actions) {
+    if (!active_document_.has_value() || !actions.request_modify_delete.has_value()) {
+        return;
+    }
+
+    const mesh::ModifyDeleteOptions options{
+        .faces = actions.request_modify_delete->faces,
+        .inside_edges = actions.request_modify_delete->inside_edges,
+        .outside_edges = actions.request_modify_delete->outside_edges,
+        .points = actions.request_modify_delete->points,
+    };
+    const mesh::ModifyDeleteResult result =
+        mesh::applyModifyDelete(&active_document_.value(), viewport_renderer_.currentSelection(), options);
+    if (!result.changed) {
+        appendLog("MODIFY", "Delete skipped because nothing applicable was selected.");
+        return;
+    }
+
+    viewport_renderer_.clearSelection();
+    viewport_renderer_.clearExpandSelectionPreview();
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
+    selected_entity_set_index_.reset();
+    pending_renderer_selection_.reset();
+    appendLog(
+        "MODIFY",
+        "Deleted " + std::to_string(result.deleted_face_count) + " faces and " +
+            std::to_string(result.deleted_point_count) + " points."
+    );
 }
 
 void EditorApplication::handleEntitySetActions(const ui::EditorUiActions& actions) {

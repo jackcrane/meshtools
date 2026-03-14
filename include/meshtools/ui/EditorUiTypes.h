@@ -21,6 +21,9 @@ struct EditorUiState {
         std::span<const std::string> unavailable_reasons;
     };
 
+    mesh::ModifyDeleteAvailability modify_delete_availability;
+    mesh::ModifyCreateFaceAvailability modify_create_face_availability;
+
     mesh::MeshDocument* active_document = nullptr;
     std::span<const mesh::EntitySet> entity_sets;
     std::optional<std::size_t> selected_entity_set_index;
@@ -157,18 +160,28 @@ struct EditorUiActions {
         std::string name;
     };
 
+    struct ModifyDeleteRequest {
+        bool faces = false;
+        bool inside_edges = false;
+        bool outside_edges = false;
+        bool points = false;
+    };
+
     bool request_exit = false;
     bool request_open_document = false;
     bool request_save_project = false;
     bool request_invert_selection = false;
+    bool request_modify_create_face = false;
     bool request_add_selection_to_entity_set = false;
     bool request_create_entity_set_from_selection = false;
     bool request_select_document_scene_item = false;
     bool expand_selection_dialog_open = false;
+    bool modify_delete_dialog_open = false;
     std::optional<std::size_t> request_add_selection_to_existing_entity_set_index;
     std::optional<std::size_t> request_select_entity_set_index;
     std::optional<EntitySetRenameRequest> request_rename_entity_set;
     std::optional<ExpandSelectionRequest> request_expand_selection;
+    std::optional<ModifyDeleteRequest> request_modify_delete;
     ViewportCameraInput viewport_camera;
     ViewportSelectionRequest viewport_selection;
     std::vector<EditorUiLogEvent> event_logs;
