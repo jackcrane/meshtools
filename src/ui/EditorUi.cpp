@@ -19,6 +19,7 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version)
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_I, "Invert selection", ShortcutCommand::InvertSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_M, ImGuiKey_D, "Modify Delete", ShortcutCommand::ModifyDelete);
     sequential_shortcuts_.registerShortcut(ImGuiKey_M, ImGuiKey_F, "Modify Create Face", ShortcutCommand::ModifyCreateFace);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_M, ImGuiKey_P, "Modify Project", ShortcutCommand::ModifyProject);
     sequential_shortcuts_.registerShortcut(ImGuiKey_V, ImGuiKey_R, "Reset viewport", ShortcutCommand::ResetViewport);
 }
 
@@ -55,6 +56,8 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ModifyDelete);
     const std::string modify_create_face_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ModifyCreateFace);
+    const std::string modify_project_shortcut =
+        sequential_shortcuts_.shortcutLabel(ShortcutCommand::ModifyProject);
 
     dock_layout_.draw();
     left_pane_.draw(state, &actions);
@@ -76,6 +79,7 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         invert_selection_shortcut,
         modify_delete_shortcut,
         modify_create_face_shortcut,
+        modify_project_shortcut,
         &actions,
         [this, &actions]() { toggleWireframe(viewport_display_settings_, &actions); },
         [this, &actions]() { toggleShadeTriangles(viewport_display_settings_, &actions); },
@@ -177,6 +181,19 @@ void EditorUi::triggerShortcutAction(ShortcutCommand action, const EditorUiState
         case ShortcutCommand::ModifyCreateFace:
             if (state.modify_create_face_availability.any()) {
                 actions->request_modify_create_face = true;
+            }
+            return;
+        case ShortcutCommand::ModifyProject:
+            if (state.modify_project_availability.any()) {
+                viewport_pane_.openModifyProjectDialog();
+            } else if (actions != nullptr) {
+                actions->event_logs.push_back(EditorUiLogEvent{
+                    .origin = "MODIFY",
+                    .message =
+                        state.modify_project_availability.unavailable_reason.empty()
+                            ? "Modify Project unavailable."
+                            : state.modify_project_availability.unavailable_reason,
+                });
             }
             return;
     }

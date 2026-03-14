@@ -21,6 +21,7 @@ enum class ShortcutCommand {
     InvertSelection,
     ModifyDelete,
     ModifyCreateFace,
+    ModifyProject,
     ResetViewport,
 };
 

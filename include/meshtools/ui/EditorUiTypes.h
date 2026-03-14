@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -8,6 +9,9 @@
 
 #include "imgui.h"
 #include "meshtools/mesh/MeshDocument.h"
+#include "meshtools/mesh/MeshOperations/CreateFace.h"
+#include "meshtools/mesh/MeshOperations/DeleteSelection.h"
+#include "meshtools/mesh/MeshOperations/ProjectEdge.h"
 
 namespace meshtools::ui {
 
@@ -23,6 +27,8 @@ struct EditorUiState {
 
     mesh::ModifyDeleteAvailability modify_delete_availability;
     mesh::ModifyCreateFaceAvailability modify_create_face_availability;
+    mesh::ModifyProjectAvailability modify_project_availability;
+    mesh::EntitySelection current_selection;
 
     mesh::MeshDocument* active_document = nullptr;
     std::span<const mesh::EntitySet> entity_sets;
@@ -167,6 +173,13 @@ struct EditorUiActions {
         bool points = false;
     };
 
+    struct ModifyProjectRequest {
+        std::array<std::uint32_t, 2> source_face_indices = {0, 0};
+        bool infinite_length = true;
+        std::optional<mesh::ModifyProjectTarget> start_target;
+        std::optional<mesh::ModifyProjectTarget> end_target;
+    };
+
     bool request_exit = false;
     bool request_open_document = false;
     bool request_save_project = false;
@@ -183,6 +196,7 @@ struct EditorUiActions {
     std::optional<EntitySetRenameRequest> request_rename_entity_set;
     std::optional<ExpandSelectionRequest> request_expand_selection;
     std::optional<ModifyDeleteRequest> request_modify_delete;
+    std::optional<ModifyProjectRequest> request_modify_project;
     ViewportCameraInput viewport_camera;
     ViewportSelectionRequest viewport_selection;
     std::vector<EditorUiLogEvent> event_logs;

@@ -6,11 +6,16 @@
 #include <ctime>
 #include <filesystem>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <utility>
 
 #include "meshtools/io/MeshImporter.h"
 #include "meshtools/io/ProjectArchive.h"
+#include "meshtools/mesh/MeshOperations/CreateFace.h"
+#include "meshtools/mesh/MeshOperations/DeleteSelection.h"
+#include "meshtools/mesh/MeshOperations/Normals.h"
+#include "meshtools/mesh/MeshOperations/ProjectEdge.h"
 #include "meshtools/platform/FileDialog.h"
 #include "meshtools/platform/NativeMenu.h"
 
@@ -179,6 +184,11 @@ int EditorApplication::run() {
                 active_document_
                     ? mesh::computeModifyCreateFaceAvailability(active_document_.value(), viewport_renderer_.currentSelection())
                     : mesh::ModifyCreateFaceAvailability{},
+            .modify_project_availability =
+                active_document_
+                    ? mesh::computeModifyProjectAvailability(active_document_.value(), viewport_renderer_.currentSelection())
+                    : mesh::ModifyProjectAvailability{},
+            .current_selection = viewport_renderer_.currentSelection(),
             .active_document = active_document_ ? &active_document_.value() : nullptr,
             .entity_sets = active_document_ ? std::span<const mesh::EntitySet>(active_document_->entity_sets) : std::span<const mesh::EntitySet>{},
             .selected_entity_set_index = selected_entity_set_index_,
@@ -216,6 +226,7 @@ int EditorApplication::run() {
         }
         handleExpandSelectionActions(actions);
         handleModifyCreateFaceRequest(actions);
+        handleModifyProjectRequest(actions);
         handleModifyDeleteRequest(actions);
         handleEntitySetActions(actions);
 
@@ -236,7 +247,9 @@ int EditorApplication::run() {
 }
 
 void EditorApplication::appendLog(std::string origin, std::string message) {
-    log_messages_.push_back('[' + makeTimestamp() + "][" + std::move(origin) + "] " + std::move(message));
+    std::string log_line = '[' + makeTimestamp() + "][" + std::move(origin) + "] " + std::move(message);
+    std::cout << log_line << std::endl;
+    log_messages_.push_back(std::move(log_line));
     constexpr std::size_t max_log_messages = 200;
     if (log_messages_.size() > max_log_messages) {
         const auto overflow =
@@ -503,6 +516,48 @@ void EditorApplication::handleModifyCreateFaceRequest(const ui::EditorUiActions&
         .point_indices = {},
     };
     appendLog("MODIFY", "Created " + std::to_string(result.created_face_count) + " faces.");
+}
+
+void EditorApplication::handleModifyProjectRequest(const ui::EditorUiActions& actions) {
+    if (!active_document_.has_value() || !actions.request_modify_project.has_value()) {
+        return;
+    }
+
+    appendLog(
+        "MODIFY",
+        "Modify Project requested from faces " +
+            std::to_string(actions.request_modify_project->source_face_indices[0]) + " and " +
+            std::to_string(actions.request_modify_project->source_face_indices[1]) + "."
+    );
+    const mesh::ModifyProjectOptions options{
+        .source_face_indices = actions.request_modify_project->source_face_indices,
+        .infinite_length = actions.request_modify_project->infinite_length,
+        .start_target = actions.request_modify_project->start_target,
+        .end_target = actions.request_modify_project->end_target,
+    };
+    const mesh::ModifyProjectResult result =
+        mesh::applyModifyProject(&active_document_.value(), options);
+    if (!result.changed) {
+        appendLog("MODIFY", "Project skipped because the requested line could not be created.");
+        return;
+    }
+
+    viewport_renderer_.clearSelection();
+    viewport_renderer_.clearExpandSelectionPreview();
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
+    selected_entity_set_index_.reset();
+    pending_renderer_selection_ = mesh::EntitySelection{
+        .edge_indices = result.created_edge_index.has_value()
+            ? std::vector<std::uint32_t>{*result.created_edge_index}
+            : std::vector<std::uint32_t>{},
+        .face_indices = {},
+        .point_indices = {},
+    };
+    appendLog(
+        "MODIFY",
+        "Projected 2 faces and created 1 edge."
+    );
 }
 
 void EditorApplication::handleModifyDeleteRequest(const ui::EditorUiActions& actions) {

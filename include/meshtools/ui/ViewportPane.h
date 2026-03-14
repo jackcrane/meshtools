@@ -1,10 +1,15 @@
 #pragma once
 
+#include <array>
 #include <functional>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 
+#include "meshtools/mesh/MeshOperations/ProjectEdge.h"
 #include "meshtools/ui/EditorUiTypes.h"
+#include "meshtools/ui/UIOperations/ModifyProject.h"
 
 struct GLFWwindow;
 
@@ -31,6 +36,7 @@ class ViewportPane {
         std::string_view invert_selection_shortcut,
         std::string_view modify_delete_shortcut,
         std::string_view modify_create_face_shortcut,
+        std::string_view modify_project_shortcut,
         EditorUiActions* actions,
         const std::function<void()>& on_toggle_wireframe,
         const std::function<void()>& on_toggle_shade_triangles,
@@ -43,6 +49,7 @@ class ViewportPane {
 
     void openExpandSelectionDialog();
     void openModifyDeleteDialog();
+    void openModifyProjectDialog();
     void setTexture(std::uint32_t texture_id);
     [[nodiscard]] ImVec2 renderSize() const;
     [[nodiscard]] ImVec2 renderTargetSize(const GraphicsQualitySettings& graphics_quality_settings) const;
@@ -92,6 +99,7 @@ class ViewportPane {
     bool modify_delete_dialog_open_ = false;
     bool modify_delete_dialog_pending_open_ = false;
     EditorUiActions::ModifyDeleteRequest modify_delete_request_{};
+    ModifyProjectOperation modify_project_operation_{};
 };
 
 }  // namespace meshtools::ui

@@ -215,13 +215,29 @@ std::string computeProjectChecksum(const std::filesystem::path& project_root) {
     return checksum.hexDigest();
 }
 
-std::string serializeProjectFileJson(const std::string& mesh_resource_path) {
-    return "{\n"
-           "  \"mesh\": {\n"
-           "    \"path\": \"" + mesh_resource_path + "\",\n"
-           "    \"format\": \"obj\"\n"
-           "  }\n"
-           "}\n";
+std::string serializeProjectFileJson(const mesh::MeshDocument& document, const std::string& mesh_resource_path) {
+    std::ostringstream stream;
+    stream << "{\n"
+           << "  \"mesh\": {\n"
+           << "    \"path\": \"" << mesh_resource_path << "\",\n"
+           << "    \"format\": \"obj\"\n"
+           << "  },\n"
+           << "  \"explicit_edges\": [";
+    if (!document.explicit_edges.empty()) {
+        stream << '\n';
+        for (std::size_t index = 0; index < document.explicit_edges.size(); ++index) {
+            const mesh::EdgeSegment& edge = document.explicit_edges[index];
+            stream << "    { \"a\": " << edge.a << ", \"b\": " << edge.b << " }";
+            if (index + 1 < document.explicit_edges.size()) {
+                stream << ',';
+            }
+            stream << '\n';
+        }
+        stream << "  ";
+    }
+    stream << "]\n"
+           << "}\n";
+    return stream.str();
 }
 
 std::optional<std::string> extractJsonStringValue(const std::string& json, const std::string& key) {
@@ -232,6 +248,26 @@ std::optional<std::string> extractJsonStringValue(const std::string& json, const
     }
 
     return match[1].str();
+}
+
+std::vector<mesh::EdgeSegment> parseExplicitEdgesFromProjectJson(const std::string& json) {
+    std::vector<mesh::EdgeSegment> edges;
+    const std::regex object_pattern("\\{\\s*\"a\"\\s*:\\s*(\\d+)\\s*,\\s*\"b\"\\s*:\\s*(\\d+)\\s*\\}");
+    for (std::sregex_iterator iterator(json.begin(), json.end(), object_pattern), end; iterator != end; ++iterator) {
+        const unsigned long a = std::stoul((*iterator)[1].str());
+        const unsigned long b = std::stoul((*iterator)[2].str());
+        if (a > std::numeric_limits<std::uint32_t>::max() || b > std::numeric_limits<std::uint32_t>::max()) {
+            throw std::runtime_error("Explicit edge index exceeds supported range.");
+        }
+        if (a == b) {
+            continue;
+        }
+        edges.push_back(mesh::EdgeSegment{
+            .a = static_cast<std::uint32_t>(a),
+            .b = static_cast<std::uint32_t>(b),
+        });
+    }
+    return edges;
 }
 
 std::vector<std::string> splitLines(const std::string& contents) {
@@ -542,6 +578,7 @@ ProjectArchiveLoadResult loadProjectArchive(const std::filesystem::path& archive
         import_result.document->source_path = archive_path;
         import_result.document->display_name_override = archive_path.stem().string();
         import_result.document->up_axis = parseUpAxis(*up_axis_value);
+        import_result.document->explicit_edges = parseExplicitEdgesFromProjectJson(project_json);
 
         const std::filesystem::path entity_sets_path = *project_root / kEntitySetsDirectoryName;
         if (std::filesystem::is_directory(entity_sets_path)) {
@@ -589,7 +626,7 @@ ProjectArchiveSaveResult saveProjectArchive(
         std::filesystem::create_directories(entity_sets_path);
 
         exportMeshAsObj(input.document, project_root / kDefaultMeshResourcePath);
-        writeTextFile(project_root / kProjectFileName, serializeProjectFileJson(kDefaultMeshResourcePath));
+        writeTextFile(project_root / kProjectFileName, serializeProjectFileJson(input.document, kDefaultMeshResourcePath));
         writeTextFile(project_root / kProjectLogFileName, joinLines(input.log_messages));
         std::vector<std::filesystem::path> entity_set_paths;
         entity_set_paths.reserve(input.document.entity_sets.size());

@@ -38,6 +38,7 @@ class EditorApplication {
     void handleInvertSelectionRequest();
     void handleSelectEdgeLoopRequest();
     void handleModifyCreateFaceRequest(const ui::EditorUiActions& actions);
+    void handleModifyProjectRequest(const ui::EditorUiActions& actions);
     void handleModifyDeleteRequest(const ui::EditorUiActions& actions);
     void handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request);
     void createEntitySetFromCurrentSelection();

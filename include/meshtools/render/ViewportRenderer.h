@@ -138,6 +138,7 @@ class ViewportRenderer {
         std::filesystem::path source_path;
         std::size_t vertex_count = 0;
         std::size_t triangle_count = 0;
+        std::size_t explicit_edge_count = 0;
         UpAxis source_up_axis = UpAxis::Y;
 
         [[nodiscard]] bool matches(const mesh::MeshDocument* document, UpAxis up_axis) const;
@@ -181,6 +182,8 @@ class ViewportRenderer {
     std::uint32_t selected_face_vertex_buffer_ = 0;
     std::uint32_t preview_face_vertex_array_ = 0;
     std::uint32_t preview_face_vertex_buffer_ = 0;
+    std::uint32_t document_edge_vertex_array_ = 0;
+    std::uint32_t document_edge_vertex_buffer_ = 0;
     std::uint32_t selected_edge_vertex_array_ = 0;
     std::uint32_t selected_edge_vertex_buffer_ = 0;
     std::uint32_t selected_point_vertex_array_ = 0;
@@ -189,6 +192,7 @@ class ViewportRenderer {
     std::uint32_t index_count_ = 0;
     std::uint32_t selected_face_vertex_count_ = 0;
     std::uint32_t preview_face_vertex_count_ = 0;
+    std::uint32_t document_edge_vertex_count_ = 0;
     std::uint32_t selected_edge_vertex_count_ = 0;
     std::uint32_t selected_point_vertex_count_ = 0;
     int framebuffer_width_ = 0;

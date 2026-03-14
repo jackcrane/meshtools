@@ -20,6 +20,12 @@ ViewportRenderer::~ViewportRenderer() {
     if (preview_face_vertex_array_ != 0) {
         glDeleteVertexArrays(1, &preview_face_vertex_array_);
     }
+    if (document_edge_vertex_buffer_ != 0) {
+        glDeleteBuffers(1, &document_edge_vertex_buffer_);
+    }
+    if (document_edge_vertex_array_ != 0) {
+        glDeleteVertexArrays(1, &document_edge_vertex_array_);
+    }
     if (selected_point_vertex_buffer_ != 0) {
         glDeleteBuffers(1, &selected_point_vertex_buffer_);
     }
@@ -145,18 +151,28 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
         glDisable(GL_BLEND);
     }
 
+    glUseProgram(highlight_shader_program_);
+    const int highlight_mvp_location = glGetUniformLocation(highlight_shader_program_, "u_mvp");
+    const int highlight_color_location = glGetUniformLocation(highlight_shader_program_, "u_color");
+    const int highlight_point_size_location = glGetUniformLocation(highlight_shader_program_, "u_point_size");
+    const int highlight_depth_bias_location = glGetUniformLocation(highlight_shader_program_, "u_depth_bias");
+    const int highlight_round_points_location = glGetUniformLocation(highlight_shader_program_, "u_round_points");
+
+    glUniformMatrix4fv(highlight_mvp_location, 1, GL_FALSE, mvp.data());
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    if (document_edge_vertex_count_ > 0U) {
+        glBindVertexArray(document_edge_vertex_array_);
+        glUniform4f(highlight_color_location, 0.03F, 0.03F, 0.03F, 1.0F);
+        glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
+        glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias * 0.75F);
+        glUniform1i(highlight_round_points_location, 0);
+        glLineWidth(1.5F);
+        glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(document_edge_vertex_count_));
+    }
+
     if (selection_summary_.totalCount() > 0U) {
-        glUseProgram(highlight_shader_program_);
-        const int highlight_mvp_location = glGetUniformLocation(highlight_shader_program_, "u_mvp");
-        const int highlight_color_location = glGetUniformLocation(highlight_shader_program_, "u_color");
-        const int highlight_point_size_location = glGetUniformLocation(highlight_shader_program_, "u_point_size");
-        const int highlight_depth_bias_location = glGetUniformLocation(highlight_shader_program_, "u_depth_bias");
-        const int highlight_round_points_location = glGetUniformLocation(highlight_shader_program_, "u_round_points");
-
-        glUniformMatrix4fv(highlight_mvp_location, 1, GL_FALSE, mvp.data());
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
         if (selected_face_vertex_count_ > 0U) {
             glBindVertexArray(selected_face_vertex_array_);
             glUniform4f(highlight_color_location, 0.93F, 0.59F, 0.18F, 0.56F);
@@ -195,9 +211,9 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
             glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(selected_point_vertex_count_));
             glDisable(GL_PROGRAM_POINT_SIZE);
         }
-
-        glDisable(GL_BLEND);
     }
+
+    glDisable(GL_BLEND);
 
     glUseProgram(axis_shader_program_);
     const int axis_mvp_location = glGetUniformLocation(axis_shader_program_, "u_mvp");
@@ -262,12 +278,17 @@ std::size_t ViewportRenderer::SelectionSummary::totalCount() const {
 
 bool ViewportRenderer::UploadedMeshState::matches(const mesh::MeshDocument* document, UpAxis up_axis) const {
     if (document == nullptr) {
-        return source_path.empty() && vertex_count == 0 && triangle_count == 0 && source_up_axis == up_axis;
+        return source_path.empty() &&
+               vertex_count == 0 &&
+               triangle_count == 0 &&
+               explicit_edge_count == 0 &&
+               source_up_axis == up_axis;
     }
 
     return source_path == document->source_path &&
            vertex_count == document->positions.size() &&
            triangle_count == document->triangles.size() &&
+           explicit_edge_count == document->explicit_edges.size() &&
            source_up_axis == up_axis;
 }
 

@@ -84,6 +84,7 @@ void ViewportPane::draw(
     std::string_view invert_selection_shortcut,
     std::string_view modify_delete_shortcut,
     std::string_view modify_create_face_shortcut,
+    std::string_view modify_project_shortcut,
     EditorUiActions* actions,
     const std::function<void()>& on_toggle_wireframe,
     const std::function<void()>& on_toggle_shade_triangles,
@@ -236,12 +237,15 @@ void ViewportPane::draw(
         modify_delete_shortcut.empty() ? nullptr : modify_delete_shortcut.data();
     const char* modify_create_face_shortcut_label =
         modify_create_face_shortcut.empty() ? nullptr : modify_create_face_shortcut.data();
+    const char* modify_project_shortcut_label =
+        modify_project_shortcut.empty() ? nullptr : modify_project_shortcut.data();
     const bool can_add_selection_to_entity_set =
         actions != nullptr &&
         state.active_document != nullptr &&
         state.selection_summary.totalCount() > 0;
     const bool can_modify_delete = state.modify_delete_availability.any();
     const bool can_modify_create_face = state.modify_create_face_availability.any();
+    const bool can_modify_project = state.modify_project_availability.any();
 
     if (actions != nullptr && actions->request_add_selection_to_entity_set) {
         actions->request_add_selection_to_entity_set = false;
@@ -407,6 +411,11 @@ void ViewportPane::draw(
             actions->request_modify_create_face = true;
         }
         ImGui::EndDisabled();
+        ImGui::BeginDisabled(!can_modify_project);
+        if (ImGui::MenuItem("Modify Project", modify_project_shortcut_label) && actions != nullptr) {
+            openModifyProjectDialog();
+        }
+        ImGui::EndDisabled();
         ImGui::EndPopup();
     }
 
@@ -459,6 +468,7 @@ void ViewportPane::draw(
 
     drawExpandSelectionDialog(state, actions);
     drawModifyDeleteDialog(state, actions);
+    modify_project_operation_.draw(state, actions);
 
     ImGui::End();
 }
@@ -470,6 +480,10 @@ void ViewportPane::openExpandSelectionDialog() {
 
 void ViewportPane::openModifyDeleteDialog() {
     modify_delete_dialog_pending_open_ = true;
+}
+
+void ViewportPane::openModifyProjectDialog() {
+    modify_project_operation_.openDialog();
 }
 
 void ViewportPane::setTexture(std::uint32_t texture_id) {

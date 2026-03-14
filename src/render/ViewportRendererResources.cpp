@@ -151,6 +151,13 @@ void ViewportRenderer::ensureHighlightResources() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(HighlightVertex), reinterpret_cast<const void*>(offsetof(HighlightVertex, position)));
 
+    glGenVertexArrays(1, &document_edge_vertex_array_);
+    glGenBuffers(1, &document_edge_vertex_buffer_);
+    glBindVertexArray(document_edge_vertex_array_);
+    glBindBuffer(GL_ARRAY_BUFFER, document_edge_vertex_buffer_);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(HighlightVertex), reinterpret_cast<const void*>(offsetof(HighlightVertex, position)));
+
     glGenVertexArrays(1, &selected_edge_vertex_array_);
     glGenBuffers(1, &selected_edge_vertex_buffer_);
     glBindVertexArray(selected_edge_vertex_array_);
@@ -181,6 +188,7 @@ void ViewportRenderer::ensurePlaceholderMesh() {
     normalized_triangles_.clear();
     unique_edges_.clear();
     unique_edge_topology_vertices_.clear();
+    document_edge_vertex_count_ = 0;
     face_neighbors_.clear();
     edge_neighbors_.clear();
     edge_face_indices_.clear();
@@ -285,12 +293,12 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
 
     unique_edges_.clear();
     unique_edge_topology_vertices_.clear();
-    unique_edges_.reserve(document->triangles.size() * 3ULL);
-    unique_edge_topology_vertices_.reserve(document->triangles.size() * 3ULL);
+    unique_edges_.reserve((document->triangles.size() * 3ULL) + document->explicit_edges.size());
+    unique_edge_topology_vertices_.reserve((document->triangles.size() * 3ULL) + document->explicit_edges.size());
     std::unordered_map<std::uint64_t, std::uint32_t> edge_index_by_key;
-    edge_index_by_key.reserve(document->triangles.size() * 3ULL);
+    edge_index_by_key.reserve((document->triangles.size() * 3ULL) + document->explicit_edges.size());
     std::unordered_set<std::uint64_t> seen_edges;
-    seen_edges.reserve(document->triangles.size() * 3ULL);
+    seen_edges.reserve((document->triangles.size() * 3ULL) + document->explicit_edges.size());
     for (const mesh::Triangle& triangle : document->triangles) {
         const std::array<Edge, 3> triangle_edges = {{
             Edge{triangle.a, triangle.b},
@@ -309,6 +317,24 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
                 unique_edges_.push_back(edge);
                 unique_edge_topology_vertices_.push_back(topology_edge);
             }
+        }
+    }
+
+    for (const mesh::EdgeSegment& edge : document->explicit_edges) {
+        if (edge.a >= topology_vertex_indices.size() || edge.b >= topology_vertex_indices.size()) {
+            continue;
+        }
+
+        const Edge geometry_edge{edge.a, edge.b};
+        const Edge topology_edge{
+            topology_vertex_indices[edge.a],
+            topology_vertex_indices[edge.b],
+        };
+        const std::uint64_t key = detail::edgeKey(topology_edge.a, topology_edge.b);
+        if (seen_edges.insert(key).second) {
+            edge_index_by_key.emplace(key, static_cast<std::uint32_t>(unique_edges_.size()));
+            unique_edges_.push_back(geometry_edge);
+            unique_edge_topology_vertices_.push_back(topology_edge);
         }
     }
 
@@ -361,10 +387,36 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
     }
 
     uploadGeometry(vertices, indices);
+    if (highlight_shader_program_ != 0) {
+        std::vector<HighlightVertex> document_edge_vertices;
+        document_edge_vertices.reserve(document->explicit_edges.size() * 2ULL);
+        for (const mesh::EdgeSegment& edge : document->explicit_edges) {
+            if (edge.a >= normalized_positions_.size() || edge.b >= normalized_positions_.size()) {
+                continue;
+            }
+            document_edge_vertices.push_back(HighlightVertex{
+                {normalized_positions_[edge.a].x, normalized_positions_[edge.a].y, normalized_positions_[edge.a].z}
+            });
+            document_edge_vertices.push_back(HighlightVertex{
+                {normalized_positions_[edge.b].x, normalized_positions_[edge.b].y, normalized_positions_[edge.b].z}
+            });
+        }
+        document_edge_vertex_count_ = static_cast<std::uint32_t>(document_edge_vertices.size());
+        glBindVertexArray(document_edge_vertex_array_);
+        glBindBuffer(GL_ARRAY_BUFFER, document_edge_vertex_buffer_);
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(document_edge_vertices.size() * sizeof(HighlightVertex)),
+            document_edge_vertices.empty() ? nullptr : document_edge_vertices.data(),
+            GL_DYNAMIC_DRAW
+        );
+        glBindVertexArray(0);
+    }
     uploaded_mesh_state_ = UploadedMeshState{
         .source_path = document->source_path,
         .vertex_count = document->positions.size(),
         .triangle_count = document->triangles.size(),
+        .explicit_edge_count = document->explicit_edges.size(),
         .source_up_axis = up_axis,
     };
     has_document_mesh_ = true;

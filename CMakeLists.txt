@@ -48,6 +48,11 @@ add_library(meshtools_core STATIC
     src/io/MeshImporter.cpp
     src/io/ProjectArchive.cpp
     src/mesh/MeshDocument.cpp
+    src/mesh/MeshOperations/CreateFace.cpp
+    src/mesh/MeshOperations/DeleteSelection.cpp
+    src/mesh/MeshOperations/Detail.cpp
+    src/mesh/MeshOperations/Normals.cpp
+    src/mesh/MeshOperations/ProjectEdge.cpp
     src/platform/GlfwWindow.cpp
     src/render/ViewportRenderer.cpp
     src/render/ViewportRendererDetail.cpp
@@ -60,6 +65,7 @@ add_library(meshtools_core STATIC
     src/ui/LeftPane.cpp
     src/ui/SequentialShortcutController.cpp
     src/ui/SettingsWindow.cpp
+    src/ui/UIOperations/ModifyProject.cpp
     src/ui/ViewportCommands.cpp
     src/ui/ViewportGizmo.cpp
     src/ui/ViewportPane.cpp
