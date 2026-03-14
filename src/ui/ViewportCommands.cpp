@@ -73,6 +73,14 @@ void requestAddSelectionToEntitySet(EditorUiActions* actions) {
     actions->request_add_selection_to_entity_set = true;
 }
 
+void requestSelectEdgeLoop(EditorUiActions* actions) {
+    if (actions == nullptr) {
+        return;
+    }
+
+    actions->request_select_edge_loop = true;
+}
+
 void requestInvertSelection(EditorUiActions* actions) {
     if (actions == nullptr) {
         return;

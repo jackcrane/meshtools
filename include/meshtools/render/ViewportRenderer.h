@@ -70,6 +70,15 @@ class ViewportRenderer {
         std::vector<std::string> unavailable_reasons;
     };
 
+    struct EdgeLoopSelectionResult {
+        bool available = false;
+        std::size_t candidate_count = 0;
+        std::size_t selected_candidate_index = 0;
+        std::string candidate_label;
+        std::string unavailable_reason;
+        mesh::EntitySelection selection;
+    };
+
     struct CameraState {
         float yaw = 0.65F;
         float pitch = 0.45F;
@@ -113,6 +122,7 @@ class ViewportRenderer {
     void clearSelection();
     [[nodiscard]] mesh::EntitySelection currentSelection() const;
     void setSelection(mesh::EntitySelection selection);
+    [[nodiscard]] EdgeLoopSelectionResult selectEdgeLoop();
     [[nodiscard]] ExpandSelectionResult evaluateExpandSelection(const ExpandSelectionParams& params) const;
     void setExpandSelectionPreview(std::vector<std::uint32_t> face_indices);
     void clearExpandSelectionPreview();
@@ -191,12 +201,19 @@ class ViewportRenderer {
     std::vector<Edge> unique_edge_topology_vertices_;
     std::vector<std::vector<std::uint32_t>> face_neighbors_;
     std::vector<std::vector<std::uint32_t>> edge_neighbors_;
+    std::vector<std::vector<std::uint32_t>> edge_face_indices_;
     std::vector<std::uint32_t> selected_edge_indices_;
     std::vector<std::uint32_t> selected_face_indices_;
     std::vector<std::uint32_t> selected_point_indices_;
     std::vector<std::uint32_t> preview_face_indices_;
     std::optional<std::uint32_t> face_selection_anchor_;
     std::optional<std::uint32_t> edge_selection_anchor_;
+    struct EdgeLoopCycleState {
+        std::optional<std::uint32_t> seed_edge_index;
+        std::vector<std::vector<std::uint32_t>> candidates;
+        std::vector<std::string> labels;
+        std::size_t selected_candidate_index = 0;
+    } edge_loop_cycle_;
     SelectionSummary selection_summary_{};
     bool has_document_mesh_ = false;
 };

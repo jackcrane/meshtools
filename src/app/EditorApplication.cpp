@@ -208,6 +208,9 @@ int EditorApplication::run() {
             appendLog(event_log.origin, event_log.message);
         }
         handleViewportSelectionRequest(actions.viewport_selection);
+        if (actions.request_select_edge_loop) {
+            handleSelectEdgeLoopRequest();
+        }
         if (actions.request_invert_selection) {
             handleInvertSelectionRequest();
         }
@@ -448,6 +451,33 @@ void EditorApplication::handleInvertSelectionRequest() {
     const std::size_t selection_count = viewport_renderer_.invertSelection(selection_query);
     selected_entity_set_index_.reset();
     appendLog("SELECTION", "Selected (" + std::to_string(selection_count) + ") entities");
+}
+
+void EditorApplication::handleSelectEdgeLoopRequest() {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    const render::ViewportRenderer::EdgeLoopSelectionResult result = viewport_renderer_.selectEdgeLoop();
+    if (!result.available) {
+        appendLog(
+            "SELECTION",
+            result.unavailable_reason.empty()
+                ? "Edge loop unavailable."
+                : "Edge loop unavailable: " + result.unavailable_reason
+        );
+        return;
+    }
+
+    selected_entity_set_index_.reset();
+    appendLog(
+        "SELECTION",
+        "Selected edge loop " +
+            std::to_string(result.selected_candidate_index + 1U) + "/" +
+            std::to_string(result.candidate_count) +
+            " (" + result.candidate_label + ", " +
+            std::to_string(result.selection.edge_indices.size()) + " edges)."
+    );
 }
 
 void EditorApplication::handleModifyCreateFaceRequest(const ui::EditorUiActions& actions) {

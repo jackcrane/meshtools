@@ -170,6 +170,7 @@ struct EditorUiActions {
     bool request_exit = false;
     bool request_open_document = false;
     bool request_save_project = false;
+    bool request_select_edge_loop = false;
     bool request_invert_selection = false;
     bool request_modify_create_face = false;
     bool request_add_selection_to_entity_set = false;

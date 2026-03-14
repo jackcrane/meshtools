@@ -28,13 +28,15 @@ void SequentialShortcutController::registerShortcut(
     ImGuiKey first_key,
     ImGuiKey second_key,
     const char* label,
-    ShortcutCommand command
+    ShortcutCommand command,
+    bool repeatable
 ) {
     bindings_.push_back(Binding{
         .first_key = first_key,
         .second_key = second_key,
         .label = label,
         .command = command,
+        .repeatable = repeatable,
     });
 }
 
@@ -42,11 +44,13 @@ void SequentialShortcutController::handleInput(const std::function<void(Shortcut
     ImGuiIO& io = ImGui::GetIO();
     if (isCmdOrCtrlHeld(io)) {
         reset();
+        clearRepeatState();
         return;
     }
 
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         reset();
+        clearRepeatState();
         return;
     }
 
@@ -67,6 +71,26 @@ void SequentialShortcutController::handleInput(const std::function<void(Shortcut
         }
     }
 
+    const auto trigger_binding = [&](const Binding& binding) {
+        on_trigger(binding.command);
+        if (binding.repeatable) {
+            repeat_ = RepeatState{
+                .second_key = binding.second_key,
+                .command = binding.command,
+            };
+        } else {
+            clearRepeatState();
+        }
+        reset();
+    };
+
+    if (pending_.first_key == ImGuiKey_None &&
+        repeat_.second_key != ImGuiKey_None &&
+        ImGui::IsKeyPressed(repeat_.second_key, false)) {
+        on_trigger(repeat_.command);
+        return;
+    }
+
     const auto try_trigger_second_key = [&](ImGuiKey first_key, bool allow_same_key_repeat) -> bool {
         for (ImGuiKey second_key : pressed_second_keys) {
             if (!allow_same_key_repeat && second_key == first_key) {
@@ -81,8 +105,7 @@ void SequentialShortcutController::handleInput(const std::function<void(Shortcut
                 }
             );
             if (match != bindings_.end()) {
-                on_trigger(match->command);
-                reset();
+                trigger_binding(*match);
                 return true;
             }
         }
@@ -172,6 +195,14 @@ void SequentialShortcutController::drawMenu(const std::function<void(ShortcutCom
             ImGui::PushID(static_cast<int>(index));
             if (ImGui::MenuItem(binding.label, shortcut_label)) {
                 on_trigger(binding.command);
+                if (binding.repeatable) {
+                    repeat_ = RepeatState{
+                        .second_key = binding.second_key,
+                        .command = binding.command,
+                    };
+                } else {
+                    clearRepeatState();
+                }
                 should_close = true;
             }
             ImGui::PopID();
@@ -259,6 +290,10 @@ void SequentialShortcutController::beginSequence(ImGuiKey first_key, const ImVec
 
 void SequentialShortcutController::reset() {
     pending_ = PendingState{};
+}
+
+void SequentialShortcutController::clearRepeatState() {
+    repeat_ = RepeatState{};
 }
 
 }  // namespace meshtools::ui

@@ -183,6 +183,8 @@ void ViewportRenderer::ensurePlaceholderMesh() {
     unique_edge_topology_vertices_.clear();
     face_neighbors_.clear();
     edge_neighbors_.clear();
+    edge_face_indices_.clear();
+    edge_loop_cycle_ = {};
     has_document_mesh_ = false;
     clearSelection();
 }
@@ -285,6 +287,8 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
     unique_edge_topology_vertices_.clear();
     unique_edges_.reserve(document->triangles.size() * 3ULL);
     unique_edge_topology_vertices_.reserve(document->triangles.size() * 3ULL);
+    std::unordered_map<std::uint64_t, std::uint32_t> edge_index_by_key;
+    edge_index_by_key.reserve(document->triangles.size() * 3ULL);
     std::unordered_set<std::uint64_t> seen_edges;
     seen_edges.reserve(document->triangles.size() * 3ULL);
     for (const mesh::Triangle& triangle : document->triangles) {
@@ -301,6 +305,7 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
             };
             const std::uint64_t key = detail::edgeKey(topology_edge.a, topology_edge.b);
             if (seen_edges.insert(key).second) {
+                edge_index_by_key.emplace(key, static_cast<std::uint32_t>(unique_edges_.size()));
                 unique_edges_.push_back(edge);
                 unique_edge_topology_vertices_.push_back(topology_edge);
             }
@@ -327,6 +332,16 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
                 face_neighbors_[adjacent_faces[j]].push_back(adjacent_faces[i]);
             }
         }
+    }
+
+    edge_face_indices_.assign(unique_edges_.size(), {});
+    for (const auto& [edge_key, adjacent_faces] : faces_by_edge) {
+        const auto edge_index_iterator = edge_index_by_key.find(edge_key);
+        if (edge_index_iterator == edge_index_by_key.end()) {
+            continue;
+        }
+
+        edge_face_indices_[edge_index_iterator->second] = adjacent_faces;
     }
 
     edge_neighbors_.assign(unique_edges_.size(), {});

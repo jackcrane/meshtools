@@ -16,6 +16,7 @@ enum class ShortcutCommand {
     ToggleFaceSelection,
     TogglePointSelection,
     AddSelectionToEntitySet,
+    SelectEdgeLoop,
     ExpandSelection,
     InvertSelection,
     ModifyDelete,
@@ -29,7 +30,8 @@ class SequentialShortcutController {
         ImGuiKey first_key,
         ImGuiKey second_key,
         const char* label,
-        ShortcutCommand command
+        ShortcutCommand command,
+        bool repeatable = false
     );
 
     void handleInput(const std::function<void(ShortcutCommand)>& on_trigger);
@@ -41,6 +43,12 @@ class SequentialShortcutController {
         ImGuiKey first_key = ImGuiKey_None;
         ImGuiKey second_key = ImGuiKey_None;
         const char* label = "";
+        ShortcutCommand command = ShortcutCommand::ToggleWireframe;
+        bool repeatable = false;
+    };
+
+    struct RepeatState {
+        ImGuiKey second_key = ImGuiKey_None;
         ShortcutCommand command = ShortcutCommand::ToggleWireframe;
     };
 
@@ -55,9 +63,11 @@ class SequentialShortcutController {
 
     void beginSequence(ImGuiKey first_key, const ImVec2& menu_anchor);
     void reset();
+    void clearRepeatState();
 
     std::vector<Binding> bindings_;
     PendingState pending_{};
+    RepeatState repeat_{};
 };
 
 }  // namespace meshtools::ui

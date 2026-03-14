@@ -19,6 +19,9 @@
 namespace meshtools::render {
 namespace {
 
+constexpr float kEdgeLoopRidgeMinAngleDegrees = 5.0F;
+constexpr float kEdgeLoopCoplanarTolerancePercent = 0.01F;
+
 bool containsIndex(const std::vector<std::uint32_t>& indices, std::uint32_t index) {
     return std::find(indices.begin(), indices.end(), index) != indices.end();
 }
@@ -185,6 +188,10 @@ std::vector<std::uint32_t> collectPreviewFaces(
         }
     }
     return preview_faces;
+}
+
+bool indexVectorsEqual(const std::vector<std::uint32_t>& left, const std::vector<std::uint32_t>& right) {
+    return left.size() == right.size() && std::equal(left.begin(), left.end(), right.begin());
 }
 
 bool solve3x3(
@@ -790,6 +797,7 @@ std::size_t ViewportRenderer::selectAt(
         .face_count = selected_face_indices_.size(),
         .point_count = selected_point_indices_.size(),
     };
+    edge_loop_cycle_ = {};
     updateHighlightBuffers();
     return selection_summary_.totalCount();
 }
@@ -978,6 +986,7 @@ std::size_t ViewportRenderer::selectInRect(
         .face_count = selected_face_indices_.size(),
         .point_count = selected_point_indices_.size(),
     };
+    edge_loop_cycle_ = {};
     updateHighlightBuffers();
     return selection_summary_.totalCount();
 }
@@ -1024,6 +1033,7 @@ std::size_t ViewportRenderer::invertSelection(const SelectionQuery& selection_qu
         .face_count = selected_face_indices_.size(),
         .point_count = selected_point_indices_.size(),
     };
+    edge_loop_cycle_ = {};
     updateHighlightBuffers();
     return selection_summary_.totalCount();
 }
@@ -1035,6 +1045,7 @@ void ViewportRenderer::clearSelection() {
     preview_face_indices_.clear();
     face_selection_anchor_.reset();
     edge_selection_anchor_.reset();
+    edge_loop_cycle_ = {};
     selection_summary_ = SelectionSummary{};
     updateHighlightBuffers();
 }
@@ -1057,12 +1068,322 @@ void ViewportRenderer::setSelection(mesh::EntitySelection selection) {
     selected_point_indices_ = std::move(selection.point_indices);
     face_selection_anchor_.reset();
     edge_selection_anchor_.reset();
+    edge_loop_cycle_ = {};
     selection_summary_ = SelectionSummary{
         .edge_count = selected_edge_indices_.size(),
         .face_count = selected_face_indices_.size(),
         .point_count = selected_point_indices_.size(),
     };
     updateHighlightBuffers();
+}
+
+ViewportRenderer::EdgeLoopSelectionResult ViewportRenderer::selectEdgeLoop() {
+    EdgeLoopSelectionResult result;
+    result.selection = currentSelection();
+
+    if (!has_document_mesh_ || normalized_positions_.empty() || unique_edges_.empty()) {
+        result.unavailable_reason = "No mesh is available for edge loop selection.";
+        return result;
+    }
+
+    if (selected_edge_indices_.empty()) {
+        result.unavailable_reason = "Select an edge first.";
+        edge_loop_cycle_ = {};
+        return result;
+    }
+
+    const auto edge_has_topology_vertex = [this](std::uint32_t edge_index, std::uint32_t topology_vertex) {
+        if (edge_index >= unique_edge_topology_vertices_.size()) {
+            return false;
+        }
+
+        const Edge& topology_edge = unique_edge_topology_vertices_[edge_index];
+        return topology_edge.a == topology_vertex || topology_edge.b == topology_vertex;
+    };
+
+    const auto other_topology_vertex = [this](std::uint32_t edge_index, std::uint32_t topology_vertex) {
+        const Edge& topology_edge = unique_edge_topology_vertices_[edge_index];
+        return topology_edge.a == topology_vertex ? topology_edge.b : topology_edge.a;
+    };
+
+    const auto vertex_position_for_topology_vertex =
+        [this](std::uint32_t edge_index, std::uint32_t topology_vertex) -> mesh::Vec3 {
+        const Edge& topology_edge = unique_edge_topology_vertices_[edge_index];
+        const Edge& geometry_edge = unique_edges_[edge_index];
+        return topology_edge.a == topology_vertex
+            ? normalized_positions_[geometry_edge.a]
+            : normalized_positions_[geometry_edge.b];
+    };
+
+    const auto boundary_edge = [this](std::uint32_t edge_index) {
+        return edge_index < edge_face_indices_.size() && edge_face_indices_[edge_index].size() == 1U;
+    };
+
+    const std::vector<FaceAnalysis> faces = buildFaceAnalysis(normalized_positions_, normalized_triangles_);
+    const float ridge_dot_limit = std::cos(kEdgeLoopRidgeMinAngleDegrees * (3.14159265358979323846F / 180.0F));
+    const auto ridge_edge = [this, &faces, ridge_dot_limit](std::uint32_t edge_index) {
+        if (edge_index >= edge_face_indices_.size()) {
+            return false;
+        }
+
+        const std::vector<std::uint32_t>& incident_faces = edge_face_indices_[edge_index];
+        if (incident_faces.size() != 2U ||
+            incident_faces[0] >= faces.size() ||
+            incident_faces[1] >= faces.size()) {
+            return false;
+        }
+
+        const float normal_dot = std::abs(detail::dot(faces[incident_faces[0]].normal, faces[incident_faces[1]].normal));
+        return normal_dot < ridge_dot_limit;
+    };
+
+    const auto add_candidate =
+        [&result, this](std::vector<std::uint32_t> edge_indices, std::string label) {
+            normalizeSelectionIndices(edge_indices, unique_edges_.size());
+            if (edge_indices.size() <= 1U) {
+                return;
+            }
+
+            for (const std::vector<std::uint32_t>& existing : edge_loop_cycle_.candidates) {
+                if (indexVectorsEqual(existing, edge_indices)) {
+                    return;
+                }
+            }
+
+            edge_loop_cycle_.candidates.push_back(std::move(edge_indices));
+            edge_loop_cycle_.labels.push_back(std::move(label));
+            result.candidate_count = edge_loop_cycle_.candidates.size();
+        };
+
+    const auto current_candidate_matches_selection = [this]() {
+        return edge_loop_cycle_.seed_edge_index.has_value() &&
+            edge_loop_cycle_.selected_candidate_index < edge_loop_cycle_.candidates.size() &&
+            indexVectorsEqual(
+                edge_loop_cycle_.candidates[edge_loop_cycle_.selected_candidate_index],
+                selected_edge_indices_
+            );
+    };
+
+    if (!current_candidate_matches_selection()) {
+        std::uint32_t seed_edge_index = edge_selection_anchor_.value_or(selected_edge_indices_.front());
+        if (!containsIndex(selected_edge_indices_, seed_edge_index)) {
+            seed_edge_index = selected_edge_indices_.front();
+        }
+        if (seed_edge_index >= unique_edges_.size()) {
+            result.unavailable_reason = "The selected edge is no longer valid.";
+            edge_loop_cycle_ = {};
+            return result;
+        }
+
+        edge_loop_cycle_ = {};
+        edge_loop_cycle_.seed_edge_index = seed_edge_index;
+
+        if (boundary_edge(seed_edge_index)) {
+            std::vector<std::uint32_t> boundary_component;
+            std::vector<unsigned char> visited(unique_edges_.size(), 0);
+            std::deque<std::uint32_t> frontier{seed_edge_index};
+            visited[seed_edge_index] = 1;
+            while (!frontier.empty()) {
+                const std::uint32_t edge_index = frontier.front();
+                frontier.pop_front();
+                boundary_component.push_back(edge_index);
+
+                if (edge_index >= edge_neighbors_.size()) {
+                    continue;
+                }
+
+                for (const std::uint32_t neighbor_edge_index : edge_neighbors_[edge_index]) {
+                    if (neighbor_edge_index >= unique_edges_.size() ||
+                        visited[neighbor_edge_index] != 0 ||
+                        !boundary_edge(neighbor_edge_index)) {
+                        continue;
+                    }
+
+                    visited[neighbor_edge_index] = 1;
+                    frontier.push_back(neighbor_edge_index);
+                }
+            }
+
+            add_candidate(std::move(boundary_component), "Hole boundary");
+        }
+
+        if (ridge_edge(seed_edge_index) && seed_edge_index < unique_edge_topology_vertices_.size()) {
+            const Edge& seed_topology_edge = unique_edge_topology_vertices_[seed_edge_index];
+            std::vector<unsigned char> visited(unique_edges_.size(), 0);
+            visited[seed_edge_index] = 1;
+
+            const auto walk_ridge_direction =
+                [this, &visited, &edge_has_topology_vertex, &other_topology_vertex, &vertex_position_for_topology_vertex, &ridge_edge](
+                    std::uint32_t current_edge_index,
+                    std::uint32_t topology_vertex
+                ) {
+                    std::vector<std::uint32_t> branch;
+                    while (current_edge_index < edge_neighbors_.size()) {
+                        const mesh::Vec3 shared_position =
+                            vertex_position_for_topology_vertex(current_edge_index, topology_vertex);
+                        const mesh::Vec3 previous_position =
+                            vertex_position_for_topology_vertex(
+                                current_edge_index,
+                                other_topology_vertex(current_edge_index, topology_vertex)
+                            );
+                        const mesh::Vec3 incoming_direction =
+                            detail::normalize(detail::subtract(shared_position, previous_position));
+
+                        std::uint32_t best_edge_index = std::numeric_limits<std::uint32_t>::max();
+                        std::uint32_t best_next_vertex = std::numeric_limits<std::uint32_t>::max();
+                        float best_alignment = -std::numeric_limits<float>::infinity();
+
+                        for (const std::uint32_t neighbor_edge_index : edge_neighbors_[current_edge_index]) {
+                            if (neighbor_edge_index >= unique_edges_.size() ||
+                                visited[neighbor_edge_index] != 0 ||
+                                !ridge_edge(neighbor_edge_index) ||
+                                !edge_has_topology_vertex(neighbor_edge_index, topology_vertex)) {
+                                continue;
+                            }
+
+                            const std::uint32_t next_vertex =
+                                other_topology_vertex(neighbor_edge_index, topology_vertex);
+                            const mesh::Vec3 next_position =
+                                vertex_position_for_topology_vertex(neighbor_edge_index, next_vertex);
+                            const mesh::Vec3 outgoing_direction =
+                                detail::normalize(detail::subtract(next_position, shared_position));
+                            const float alignment = detail::dot(incoming_direction, outgoing_direction);
+                            if (alignment > best_alignment) {
+                                best_alignment = alignment;
+                                best_edge_index = neighbor_edge_index;
+                                best_next_vertex = next_vertex;
+                            }
+                        }
+
+                        if (best_edge_index == std::numeric_limits<std::uint32_t>::max()) {
+                            break;
+                        }
+
+                        visited[best_edge_index] = 1;
+                        branch.push_back(best_edge_index);
+                        current_edge_index = best_edge_index;
+                        topology_vertex = best_next_vertex;
+                    }
+
+                    return branch;
+                };
+
+            std::vector<std::uint32_t> ridge_chain =
+                walk_ridge_direction(seed_edge_index, seed_topology_edge.a);
+            std::reverse(ridge_chain.begin(), ridge_chain.end());
+            ridge_chain.push_back(seed_edge_index);
+            std::vector<std::uint32_t> opposite_branch =
+                walk_ridge_direction(seed_edge_index, seed_topology_edge.b);
+            ridge_chain.insert(ridge_chain.end(), opposite_branch.begin(), opposite_branch.end());
+            add_candidate(std::move(ridge_chain), "Ridge line");
+        }
+
+        const float model_diagonal = std::max(modelDiagonalLength(normalized_positions_), 0.0001F);
+        const float tolerance_distance = model_diagonal * kEdgeLoopCoplanarTolerancePercent * 0.01F;
+        const float normal_alignment_tolerance = std::max(kEdgeLoopCoplanarTolerancePercent * 0.01F, 1.0e-5F);
+        std::size_t coplanar_candidate_count = 0;
+        if (seed_edge_index < edge_face_indices_.size()) {
+            for (const std::uint32_t seed_face_index : edge_face_indices_[seed_edge_index]) {
+                if (seed_face_index >= faces.size()) {
+                    continue;
+                }
+
+                std::vector<unsigned char> in_region(faces.size(), 0);
+                std::deque<std::uint32_t> frontier{seed_face_index};
+                in_region[seed_face_index] = 1;
+
+                while (!frontier.empty()) {
+                    const std::uint32_t current_face_index = frontier.front();
+                    frontier.pop_front();
+                    if (current_face_index >= face_neighbors_.size()) {
+                        continue;
+                    }
+
+                    for (const std::uint32_t neighbor_face_index : face_neighbors_[current_face_index]) {
+                        if (neighbor_face_index >= faces.size() || in_region[neighbor_face_index] != 0) {
+                            continue;
+                        }
+
+                        if (!facesMatchCoplanar(
+                                faces[neighbor_face_index],
+                                faces[seed_face_index],
+                                tolerance_distance,
+                                normal_alignment_tolerance,
+                                false
+                            )) {
+                            continue;
+                        }
+
+                        in_region[neighbor_face_index] = 1;
+                        frontier.push_back(neighbor_face_index);
+                    }
+                }
+
+                std::vector<std::uint32_t> boundary_edges;
+                boundary_edges.reserve(unique_edges_.size());
+                for (std::size_t edge_index = 0; edge_index < edge_face_indices_.size(); ++edge_index) {
+                    const std::vector<std::uint32_t>& incident_faces = edge_face_indices_[edge_index];
+                    std::size_t in_region_count = 0;
+                    for (const std::uint32_t face_index : incident_faces) {
+                        if (face_index < in_region.size() && in_region[face_index] != 0) {
+                            ++in_region_count;
+                        }
+                    }
+
+                    if (in_region_count > 0U &&
+                        (incident_faces.size() == 1U || in_region_count < incident_faces.size())) {
+                        boundary_edges.push_back(static_cast<std::uint32_t>(edge_index));
+                    }
+                }
+
+                const std::size_t candidate_count_before = edge_loop_cycle_.candidates.size();
+                add_candidate(
+                    std::move(boundary_edges),
+                    "Coplanar boundary " + std::to_string(coplanar_candidate_count + 1U)
+                );
+                if (edge_loop_cycle_.candidates.size() > candidate_count_before) {
+                    ++coplanar_candidate_count;
+                }
+            }
+        }
+
+        if (coplanar_candidate_count == 1U) {
+            for (std::string& label : edge_loop_cycle_.labels) {
+                if (label == "Coplanar boundary 1") {
+                    label = "Coplanar boundary";
+                    break;
+                }
+            }
+        }
+
+        if (edge_loop_cycle_.candidates.empty()) {
+            result.unavailable_reason = "No loop candidates were found for the selected edge.";
+            edge_loop_cycle_ = {};
+            return result;
+        }
+
+        edge_loop_cycle_.selected_candidate_index = 0;
+    } else {
+        edge_loop_cycle_.selected_candidate_index =
+            (edge_loop_cycle_.selected_candidate_index + 1U) % edge_loop_cycle_.candidates.size();
+    }
+
+    const std::size_t candidate_index = edge_loop_cycle_.selected_candidate_index;
+    selected_edge_indices_ = edge_loop_cycle_.candidates[candidate_index];
+    edge_selection_anchor_ = edge_loop_cycle_.seed_edge_index;
+    selection_summary_ = SelectionSummary{
+        .edge_count = selected_edge_indices_.size(),
+        .face_count = selected_face_indices_.size(),
+        .point_count = selected_point_indices_.size(),
+    };
+    updateHighlightBuffers();
+
+    result.available = true;
+    result.candidate_count = edge_loop_cycle_.candidates.size();
+    result.selected_candidate_index = candidate_index;
+    result.candidate_label = edge_loop_cycle_.labels[candidate_index];
+    result.selection = currentSelection();
+    return result;
 }
 
 ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelection(const ExpandSelectionParams& params) const {

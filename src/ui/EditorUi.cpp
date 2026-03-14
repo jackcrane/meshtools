@@ -14,6 +14,7 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version)
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_F, "Toggle face selection", ShortcutCommand::ToggleFaceSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_P, "Toggle point selection", ShortcutCommand::TogglePointSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_E, "Add to Entity Set", ShortcutCommand::AddSelectionToEntitySet);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_L, "Select edge loop", ShortcutCommand::SelectEdgeLoop, true);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_X, "Expand selection", ShortcutCommand::ExpandSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_I, "Invert selection", ShortcutCommand::InvertSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_M, ImGuiKey_D, "Modify Delete", ShortcutCommand::ModifyDelete);
@@ -158,6 +159,9 @@ void EditorUi::triggerShortcutAction(ShortcutCommand action, const EditorUiState
             return;
         case ShortcutCommand::AddSelectionToEntitySet:
             requestAddSelectionToEntitySet(actions);
+            return;
+        case ShortcutCommand::SelectEdgeLoop:
+            requestSelectEdgeLoop(actions);
             return;
         case ShortcutCommand::ExpandSelection:
             viewport_pane_.openExpandSelectionDialog();

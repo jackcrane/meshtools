@@ -11,6 +11,7 @@ void toggleEdgeSelection(SelectionFilters& selection_filters, EditorUiActions* a
 void toggleFaceSelection(SelectionFilters& selection_filters, EditorUiActions* actions);
 void togglePointSelection(SelectionFilters& selection_filters, EditorUiActions* actions);
 void requestAddSelectionToEntitySet(EditorUiActions* actions);
+void requestSelectEdgeLoop(EditorUiActions* actions);
 void requestInvertSelection(EditorUiActions* actions);
 void resetViewport(
     ViewportDisplaySettings& viewport_display_settings,
