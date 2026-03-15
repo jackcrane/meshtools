@@ -5,9 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <iostream>
 #include <limits>
-#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -332,89 +330,10 @@ bool rotationUnrestricted(const SelectSimilarParams& params) {
     return params.allow_rotation_x && params.allow_rotation_y && params.allow_rotation_z;
 }
 
-std::string formatIndices(const std::vector<std::uint32_t>& values) {
-    std::ostringstream stream;
-    stream << '[';
-    for (std::size_t index = 0; index < values.size(); ++index) {
-        if (index > 0) {
-            stream << ", ";
-        }
-        stream << values[index];
-    }
-    stream << ']';
-    return stream.str();
-}
-
-void debugLog(const std::string& message) {
-    std::cout << "[SS] " << message << std::endl;
-}
-
-void debugLogEdgeInfo(
-    const std::vector<mesh::Vec3>& positions,
-    const std::vector<EdgeInfo>& edges,
-    const std::vector<std::uint32_t>& edge_indices,
-    const char* label
-) {
-    debugLog(std::string(label) + " count=" + std::to_string(edge_indices.size()) + " indices=" + formatIndices(edge_indices));
-    for (const std::uint32_t edge_index : edge_indices) {
-        if (edge_index >= edges.size()) {
-            debugLog("  edge " + std::to_string(edge_index) + " is out of range");
-            continue;
-        }
-        const EdgeInfo& edge = edges[edge_index];
-        std::ostringstream stream;
-        stream
-            << "  edge " << edge_index
-            << " (" << edge.a << " -> " << edge.b << ")"
-            << " length=" << edge.length;
-        if (edge.a < positions.size() && edge.b < positions.size()) {
-            stream
-                << " a=(" << positions[edge.a].x << ", " << positions[edge.a].y << ", " << positions[edge.a].z << ')'
-                << " b=(" << positions[edge.b].x << ", " << positions[edge.b].y << ", " << positions[edge.b].z << ')';
-        }
-        debugLog(stream.str());
-    }
-}
-
-void debugLogPattern(
-    const std::vector<mesh::Vec3>& positions,
-    const Pattern& pattern
-) {
-    debugLog(
-        "pattern vertices=" + std::to_string(pattern.global_vertices.size()) +
-        " edges=" + std::to_string(pattern.edges.size()) +
-        " anchor_edge=" + std::to_string(pattern.anchor_edge_index) +
-        " reference_vertex=" +
-        (pattern.reference_vertex.has_value() ? std::to_string(*pattern.reference_vertex) : std::string("none"))
-    );
-    for (std::size_t local_vertex = 0; local_vertex < pattern.global_vertices.size(); ++local_vertex) {
-        const std::uint32_t global_vertex = pattern.global_vertices[local_vertex];
-        std::ostringstream stream;
-        stream
-            << "  vertex local=" << local_vertex
-            << " global=" << global_vertex
-            << " degree=" << pattern.degrees[local_vertex];
-        if (global_vertex < positions.size()) {
-            stream
-                << " pos=(" << positions[global_vertex].x << ", " << positions[global_vertex].y << ", " << positions[global_vertex].z << ')';
-        }
-        debugLog(stream.str());
-    }
-    for (std::size_t left = 0; left < pattern.global_vertices.size(); ++left) {
-        for (std::size_t right = left + 1; right < pattern.global_vertices.size(); ++right) {
-            debugLog(
-                "  pair distance local(" + std::to_string(left) + ", " + std::to_string(right) +
-                ") = " + std::to_string(pairwiseDistance(pattern, static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(right)))
-            );
-        }
-    }
-}
-
 bool validateMatch(const MatchContext& context, const std::vector<std::uint32_t>& vertex_map, std::vector<std::uint32_t>* matched_edges) {
     const EdgeInfo& anchor = context.pattern.edges[context.pattern.anchor_edge_index];
     const auto edge_iterator = context.edge_lookup.find(detail::edgeKey(vertex_map[anchor.a], vertex_map[anchor.b]));
     if (edge_iterator == context.edge_lookup.end()) {
-        debugLog("validate rejected: anchor edge missing in candidate mapping");
         return false;
     }
     const float tolerance_fraction = relativeToleranceFraction(context.params);
@@ -426,12 +345,6 @@ bool validateMatch(const MatchContext& context, const std::vector<std::uint32_t>
             );
             const bool candidate_has_edge = context.edge_lookup.contains(detail::edgeKey(vertex_map[left], vertex_map[right]));
             if (selected_has_edge != candidate_has_edge) {
-                debugLog(
-                    "validate rejected: adjacency mismatch local(" + std::to_string(left) + ", " +
-                    std::to_string(right) + ") selected_has_edge=" +
-                    std::to_string(selected_has_edge ? 1 : 0) + " candidate_has_edge=" +
-                    std::to_string(candidate_has_edge ? 1 : 0)
-                );
                 return false;
             }
         }
@@ -449,11 +362,6 @@ bool validateMatch(const MatchContext& context, const std::vector<std::uint32_t>
                 edgeLength(context.positions[vertex_map[left]], context.positions[vertex_map[right]]);
             if (!context.params.allow_scaling || context.params.require_uniform_scaling) {
                 if (!compatibleLength(expected_distance * anchor_scale, actual_distance, tolerance_fraction)) {
-                    debugLog(
-                        "validate rejected: pair distance mismatch local(" + std::to_string(left) + ", " +
-                        std::to_string(right) + ") expected=" + std::to_string(expected_distance * anchor_scale) +
-                        " actual=" + std::to_string(actual_distance)
-                    );
                     return false;
                 }
             }
@@ -486,7 +394,6 @@ bool validateMatch(const MatchContext& context, const std::vector<std::uint32_t>
                 detail::scale(detail::subtract(context.positions[context.pattern.global_vertices[index]], source_origin), uniform_scale)
             );
             if (detail::length(detail::subtract(transformed, context.positions[vertex_map[index]])) > absolute_tolerance) {
-                debugLog("validate rejected: no-rotation transform mismatch at vertex " + std::to_string(index));
                 return false;
             }
         }
@@ -494,7 +401,6 @@ bool validateMatch(const MatchContext& context, const std::vector<std::uint32_t>
         const Basis source_basis = makeBasis(context.positions, context.pattern.global_vertices, anchor, context.pattern.reference_vertex);
         const Basis candidate_basis = makeBasis(context.positions, vertex_map, anchor, context.pattern.reference_vertex);
         if (!rotationAllowed(source_basis, candidate_basis, context.params)) {
-            debugLog("validate rejected: recovered rotation violates rotation axis flags");
             return false;
         }
 
@@ -545,7 +451,6 @@ bool validateMatch(const MatchContext& context, const std::vector<std::uint32_t>
             rotated = mesh::Vec3{.x = rotated.x * scale.x, .y = rotated.y * scale.y, .z = rotated.z * scale.z};
             const mesh::Vec3 transformed = detail::add(candidate_origin, rotated);
             if (detail::length(detail::subtract(transformed, context.positions[vertex_map[index]])) > absolute_tolerance) {
-                debugLog("validate rejected: transformed vertex mismatch at vertex " + std::to_string(index));
                 return false;
             }
         }
@@ -557,7 +462,6 @@ bool validateMatch(const MatchContext& context, const std::vector<std::uint32_t>
         matched_edges->push_back(context.edge_lookup.at(detail::edgeKey(vertex_map[edge.a], vertex_map[edge.b])));
     }
     sortAndUnique(matched_edges);
-    debugLog("validate accepted match=" + formatIndices(*matched_edges));
     return true;
 }
 
@@ -567,9 +471,6 @@ void searchMatches(
     std::vector<unsigned char>* used_vertices
 ) {
     if (context == nullptr || vertex_map == nullptr || used_vertices == nullptr || context->recursion_budget-- == 0) {
-        if (context != nullptr && context->recursion_budget == 0) {
-            debugLog("search stopped: recursion budget exhausted");
-        }
         return;
     }
 
@@ -581,10 +482,6 @@ void searchMatches(
         const std::uint32_t mapped_b = (*vertex_map)[edge.b];
         if (mapped_a != std::numeric_limits<std::uint32_t>::max() && mapped_b != std::numeric_limits<std::uint32_t>::max()) {
             if (!context->edge_lookup.contains(detail::edgeKey(mapped_a, mapped_b))) {
-                debugLog(
-                    "search prune: mapped edge missing for local edge " + std::to_string(edge_index) +
-                    " candidate vertices (" + std::to_string(mapped_a) + ", " + std::to_string(mapped_b) + ")"
-                );
                 return;
             }
             continue;
@@ -602,11 +499,6 @@ void searchMatches(
             if (candidate_vertex >= used_vertices->size() ||
                 (*used_vertices)[candidate_vertex] != 0 ||
                 context->incident_edges[candidate_vertex].size() < context->pattern.degrees[unknown_local]) {
-                debugLog(
-                    "search reject option: local vertex " + std::to_string(unknown_local) +
-                    " candidate vertex " + std::to_string(candidate_vertex) +
-                    " basic constraints failed"
-                );
                 continue;
             }
             bool geometry_mismatch = false;
@@ -633,12 +525,6 @@ void searchMatches(
                         actual_distance,
                         relativeToleranceFraction(context->params)
                     )) {
-                    debugLog(
-                        "search reject option: pair mismatch unknown_local=" + std::to_string(unknown_local) +
-                        " against local=" + std::to_string(local_vertex) +
-                        " expected=" + std::to_string(expected_distance * anchor_scale) +
-                        " actual=" + std::to_string(actual_distance)
-                    );
                     geometry_mismatch = true;
                     break;
                 }
@@ -657,12 +543,6 @@ void searchMatches(
                         context->all_edges[candidate_edge].length,
                         relativeToleranceFraction(context->params)
                     )) {
-                    debugLog(
-                        "search reject option: edge length mismatch local edge=" + std::to_string(edge_index) +
-                        " candidate edge=" + std::to_string(candidate_edge) +
-                        " expected=" + std::to_string(edge.length * anchor_scale) +
-                        " actual=" + std::to_string(context->all_edges[candidate_edge].length)
-                    );
                     continue;
                 }
             }
@@ -690,19 +570,10 @@ void searchMatches(
     const EdgeInfo& edge = context->pattern.edges[*best_edge];
     const bool expand_from_a = (*vertex_map)[edge.a] != std::numeric_limits<std::uint32_t>::max();
     const std::uint32_t unknown_local = expand_from_a ? edge.b : edge.a;
-    debugLog(
-        "search branch " + std::to_string(++context->branch_counter) +
-        ": local edge=" + std::to_string(*best_edge) +
-        " assigning local vertex=" + std::to_string(unknown_local) +
-        " options=" + formatIndices(options)
-    );
+    ++context->branch_counter;
     for (const std::uint32_t candidate_vertex : options) {
         (*vertex_map)[unknown_local] = candidate_vertex;
         (*used_vertices)[candidate_vertex] = 1;
-        debugLog(
-            "search try: local vertex " + std::to_string(unknown_local) +
-            " -> candidate vertex " + std::to_string(candidate_vertex)
-        );
         searchMatches(context, vertex_map, used_vertices);
         (*used_vertices)[candidate_vertex] = 0;
         (*vertex_map)[unknown_local] = std::numeric_limits<std::uint32_t>::max();
@@ -719,17 +590,6 @@ SelectSimilarResult evaluateSelectSimilar(
 ) {
     SelectSimilarResult result;
     result.selection = current_selection;
-    debugLog("============================================================");
-    debugLog(
-        "evaluate start edges_in_workspace=" + std::to_string(edges.size()) +
-        " selected_edges=" + std::to_string(current_selection.edge_indices.size()) +
-        " allow_rot=(" + std::to_string(params.allow_rotation_x ? 1 : 0) + "," +
-        std::to_string(params.allow_rotation_y ? 1 : 0) + "," +
-        std::to_string(params.allow_rotation_z ? 1 : 0) + ")" +
-        " allow_scaling=" + std::to_string(params.allow_scaling ? 1 : 0) +
-        " require_uniform_scaling=" + std::to_string(params.require_uniform_scaling ? 1 : 0) +
-        " tolerance_percent=" + std::to_string(params.tolerance)
-    );
 
     std::vector<std::uint32_t> selected_edges = current_selection.edge_indices;
     sortAndUnique(&selected_edges);
@@ -743,11 +603,9 @@ SelectSimilarResult evaluateSelectSimilar(
     }
 
     const std::vector<EdgeInfo> all_edges = buildEdgeInfo(positions, edges);
-    debugLogEdgeInfo(positions, all_edges, selected_edges, "selected edges");
     for (const std::uint32_t edge_index : selected_edges) {
         if (edge_index >= all_edges.size()) {
             result.unavailable_reasons.push_back("The current edge selection is no longer valid.");
-            debugLog("evaluate abort: selected edge index out of range");
             return result;
         }
     }
@@ -756,16 +614,10 @@ SelectSimilarResult evaluateSelectSimilar(
         const float target_length = all_edges[selected_edges.front()].length;
         const float tolerance_fraction = relativeToleranceFraction(params);
         for (std::uint32_t edge_index = 0; edge_index < all_edges.size(); ++edge_index) {
-            const bool is_match =
+            if (
                 !contains(selected_edges, edge_index) &&
-                compatibleLength(target_length, all_edges[edge_index].length, tolerance_fraction);
-            debugLog(
-                "single-edge candidate edge=" + std::to_string(edge_index) +
-                " target_length=" + std::to_string(target_length) +
-                " candidate_length=" + std::to_string(all_edges[edge_index].length) +
-                " match=" + std::to_string(is_match ? 1 : 0)
-            );
-            if (is_match) {
+                compatibleLength(target_length, all_edges[edge_index].length, tolerance_fraction)
+            ) {
                 result.preview_edge_indices.push_back(edge_index);
             }
         }
@@ -787,10 +639,8 @@ SelectSimilarResult evaluateSelectSimilar(
     const std::optional<Pattern> pattern = buildPattern(positions, all_edges, selected_edges);
     if (!pattern.has_value()) {
         result.unavailable_reasons.push_back("Select Similar currently requires one connected group of edges.");
-        debugLog("evaluate abort: failed to build connected pattern");
         return result;
     }
-    debugLogPattern(positions, *pattern);
 
     const auto incident_edges = buildIncidentEdges(positions.size(), all_edges);
     const auto edge_lookup = buildEdgeLookup(all_edges);
@@ -810,11 +660,6 @@ SelectSimilarResult evaluateSelectSimilar(
         if ((!params.allow_scaling || params.require_uniform_scaling) &&
             !compatibleLength(anchor.length, all_edges[edge_index].length, tolerance_fraction) &&
             !params.allow_scaling) {
-            debugLog(
-                "anchor reject edge=" + std::to_string(edge_index) +
-                " candidate_length=" + std::to_string(all_edges[edge_index].length) +
-                " anchor_length=" + std::to_string(anchor.length)
-            );
             continue;
         }
         for (int orientation = 0; orientation < 2; ++orientation) {
@@ -826,15 +671,8 @@ SelectSimilarResult evaluateSelectSimilar(
             vertex_map[anchor.b] = second_vertex;
             used_vertices[first_vertex] = 1;
             used_vertices[second_vertex] = 1;
-            debugLog(
-                "anchor try edge=" + std::to_string(edge_index) +
-                " orientation=" + std::to_string(orientation) +
-                " local anchor (" + std::to_string(anchor.a) + "," + std::to_string(anchor.b) + ")" +
-                " -> candidate (" + std::to_string(first_vertex) + "," + std::to_string(second_vertex) + ")"
-            );
             if (incident_edges[first_vertex].size() < pattern->degrees[anchor.a] ||
                 incident_edges[second_vertex].size() < pattern->degrees[anchor.b]) {
-                debugLog("anchor reject: degree mismatch");
                 continue;
             }
             context.recursion_budget = 20000;
@@ -843,7 +681,6 @@ SelectSimilarResult evaluateSelectSimilar(
     }
 
     for (const std::vector<std::uint32_t>& match : context.matches) {
-        debugLog("final match group=" + formatIndices(match));
         ++result.match_count;
         for (const std::uint32_t edge_index : match) {
             if (!contains(selected_edges, edge_index)) {
@@ -861,14 +698,7 @@ SelectSimilarResult evaluateSelectSimilar(
     result.available = !result.preview_edge_indices.empty();
     if (!result.available) {
         result.unavailable_reasons.push_back("No similar edge groups were found.");
-        debugLog("evaluate result: no similar groups found");
-    } else {
-        debugLog(
-            "evaluate result: match_count=" + std::to_string(result.match_count) +
-            " preview_edges=" + formatIndices(result.preview_edge_indices)
-        );
     }
-    debugLog("============================================================");
     return result;
 }
 
