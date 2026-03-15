@@ -50,10 +50,11 @@ void BottomPane::draw(const EditorUiState& state) {
                 ImGui::TextDisabled("No log messages.");
             } else {
                 const bool appended_log_messages = state.log_messages.size() != last_console_log_count_;
+                const ImVec4 console_background = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
 
-                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
-                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
-                ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.02F, 0.02F, 0.02F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, console_background);
+                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, console_background);
+                ImGui::PushStyleColor(ImGuiCol_FrameBgActive, console_background);
                 if (ImGui::BeginChild("ConsoleOutput", ImVec2(0.0F, 0.0F), ImGuiChildFlags_FrameStyle)) {
                     for (std::size_t index = 0; index < state.log_messages.size(); ++index) {
                         ImGui::TextUnformatted(state.log_messages[index].c_str());

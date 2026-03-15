@@ -109,6 +109,7 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         viewport_control_settings_,
         graphics_quality_settings_,
         file_import_settings_,
+        imgui_system_,
         &actions
     );
     sequential_shortcuts_.drawMenu([this, &state, &actions](ShortcutCommand command) {
@@ -151,7 +152,7 @@ void EditorUi::setViewportTexture(std::uint32_t texture_id) {
 }
 
 const ImVec4& EditorUi::clearColor() const {
-    return clear_color_;
+    return imgui_system_.clearColor();
 }
 
 const FileImportSettings& EditorUi::fileImportSettings() const {
