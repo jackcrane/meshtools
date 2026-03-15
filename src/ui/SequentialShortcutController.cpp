@@ -42,6 +42,12 @@ void SequentialShortcutController::registerShortcut(
 
 void SequentialShortcutController::handleInput(const std::function<void(ShortcutCommand)>& on_trigger) {
     ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput) {
+        reset();
+        clearRepeatState();
+        return;
+    }
+
     if (isCmdOrCtrlHeld(io)) {
         reset();
         clearRepeatState();
