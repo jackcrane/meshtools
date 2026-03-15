@@ -160,11 +160,22 @@ void buildPlaneBasis(const Vec3& normal, Vec3* tangent, Vec3* bitangent);
 [[nodiscard]] float signedArea2D(const std::vector<Vec2>& points);
 [[nodiscard]] float orient2D(const Vec2& a, const Vec2& b, const Vec2& c);
 [[nodiscard]] bool pointInTriangle2D(const Vec2& point, const Vec2& a, const Vec2& b, const Vec2& c);
+[[nodiscard]] bool segmentsIntersect2D(const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d);
+[[nodiscard]] bool untanglePolygonOrder(
+    std::vector<std::uint32_t>* ordered_points,
+    std::vector<Vec2>* projected_points
+);
 [[nodiscard]] Vec3 findPlaneNormal(
     const std::vector<Vec3>& positions,
     const std::vector<std::uint32_t>& point_indices
 );
 [[nodiscard]] std::vector<std::uint32_t> sortPointsForFace(
+    const std::vector<Vec3>& positions,
+    std::vector<std::uint32_t> point_indices,
+    Vec3 preferred_normal = Vec3{}
+);
+[[nodiscard]] std::vector<std::uint32_t> orderPointsFromConnectedPoints(
+    const MeshTopology& topology,
     const std::vector<Vec3>& positions,
     std::vector<std::uint32_t> point_indices,
     Vec3 preferred_normal = Vec3{}
