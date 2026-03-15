@@ -23,6 +23,8 @@ static NativeMenuActions g_pending_actions;
 - (void)openSample:(id)sender;
 - (void)saveProject:(id)sender;
 - (void)saveProjectAs:(id)sender;
+- (void)undoEdit:(id)sender;
+- (void)redoEdit:(id)sender;
 - (void)openSettings:(id)sender;
 - (void)quitApplication:(id)sender;
 @end
@@ -50,6 +52,16 @@ static NativeMenuActions g_pending_actions;
 - (void)saveProjectAs:(id)sender {
     (void)sender;
     g_pending_actions.save_project_as = true;
+}
+
+- (void)undoEdit:(id)sender {
+    (void)sender;
+    g_pending_actions.undo = true;
+}
+
+- (void)redoEdit:(id)sender {
+    (void)sender;
+    g_pending_actions.redo = true;
 }
 
 - (void)openSettings:(id)sender {
@@ -147,6 +159,19 @@ void initializeNativeMenu(const std::string& app_name) {
         [save_as_item setTarget:menuTarget()];
         [file_menu addItem:save_as_item];
         [file_menu_item setSubmenu:file_menu];
+
+        NSMenuItem* edit_menu_item = [[NSMenuItem alloc] init];
+        [menu_bar addItem:edit_menu_item];
+
+        NSMenu* edit_menu = [[NSMenu alloc] initWithTitle:@"Edit"];
+        NSMenuItem* undo_item = [[NSMenuItem alloc] initWithTitle:@"Undo" action:@selector(undoEdit:) keyEquivalent:@"z"];
+        [undo_item setTarget:menuTarget()];
+        [edit_menu addItem:undo_item];
+
+        NSMenuItem* redo_item = [[NSMenuItem alloc] initWithTitle:@"Redo" action:@selector(redoEdit:) keyEquivalent:@"y"];
+        [redo_item setTarget:menuTarget()];
+        [edit_menu addItem:redo_item];
+        [edit_menu_item setSubmenu:edit_menu];
 
         [NSApp setMainMenu:menu_bar];
     }

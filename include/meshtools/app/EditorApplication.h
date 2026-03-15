@@ -24,6 +24,32 @@ class EditorApplication {
 
     int run();
 
+    struct EditableDocumentState {
+        mesh::UpAxis up_axis = mesh::UpAxis::Y;
+        std::uint64_t mesh_revision = 0;
+        std::vector<mesh::Vec3> positions;
+        std::vector<mesh::Vec3> normals;
+        std::vector<mesh::Triangle> triangles;
+        std::vector<mesh::EdgeSegment> explicit_edges;
+        mesh::Bounds bounds;
+        std::vector<mesh::EntitySet> entity_sets;
+    };
+
+    struct DocumentHistorySnapshot {
+        EditableDocumentState document_state;
+        mesh::EntitySelection selection;
+        std::optional<std::size_t> selected_entity_set_index;
+    };
+
+    struct DocumentHistoryNode {
+        std::size_t node_id = 0;
+        std::optional<std::size_t> parent_index;
+        std::vector<std::size_t> child_indices;
+        std::optional<std::size_t> preferred_child_index;
+        std::string label;
+        DocumentHistorySnapshot snapshot;
+    };
+
   private:
     void appendLog(std::string origin, std::string message);
     void openDocument();
@@ -33,6 +59,7 @@ class EditorApplication {
     void loadMeshDocument(const std::filesystem::path& path);
     void loadProjectDocument(const std::filesystem::path& path);
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
+    void handleProjectActions(const ui::EditorUiActions& actions);
     void handleEntitySetActions(const ui::EditorUiActions& actions);
     void handleExpandSelectionActions(const ui::EditorUiActions& actions);
     void handleInvertSelectionRequest();
@@ -47,6 +74,24 @@ class EditorApplication {
     void addCurrentSelectionToEntitySet(std::size_t index);
     void addSelectionToEntitySet(std::size_t index, mesh::EntitySelection selection);
     void selectEntitySet(std::size_t index);
+    void bumpMeshRevision();
+    void resetDocumentHistory(std::string root_label);
+    void commitDocumentHistory(
+        std::string label,
+        const mesh::EntitySelection& selection,
+        std::optional<std::size_t> selected_entity_set_index
+    );
+    void undoDocumentHistory();
+    void redoDocumentHistory();
+    void jumpToDocumentHistoryNode(std::size_t node_id);
+    void restoreDocumentHistoryNode(std::size_t node_index, std::string action);
+    void rebuildDocumentHistoryUiState();
+    void setPreferredHistoryPathToNode(std::size_t node_index);
+    [[nodiscard]] DocumentHistorySnapshot captureDocumentHistorySnapshot(
+        const mesh::EntitySelection& selection,
+        std::optional<std::size_t> selected_entity_set_index
+    ) const;
+    [[nodiscard]] std::optional<std::size_t> historyNodeIndexById(std::size_t node_id) const;
     [[nodiscard]] std::string makeDefaultEntitySetName() const;
 
     AppConfig config_;
@@ -63,6 +108,13 @@ class EditorApplication {
     ui::EditorUiState::SelectSimilarFeedback select_similar_feedback_{};
     ui::ViewportCameraInput pending_viewport_camera_input_;
     std::optional<mesh::EntitySelection> pending_renderer_selection_;
+    std::vector<DocumentHistoryNode> document_history_;
+    std::optional<std::size_t> current_history_index_;
+    std::size_t next_history_node_id_ = 1;
+    std::uint64_t next_mesh_revision_id_ = 1;
+    std::vector<ui::EditorUiState::HistoryEntry> history_entries_;
+    std::vector<ui::EditorUiState::HistoryBranchEntry> active_history_branch_;
+    std::size_t active_history_branch_position_ = 0;
 };
 
 }  // namespace meshtools::app

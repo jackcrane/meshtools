@@ -48,7 +48,7 @@ OverlayVec3 applyUpAxisTransform(const OverlayVec3& vector, UpAxis up_axis) {
 ViewportGizmoResult drawViewportGizmo(
     const ViewportGizmoConfig& config,
     UpAxis default_up_axis,
-    mesh::MeshDocument* active_document,
+    const mesh::MeshDocument* active_document,
     EditorUiActions* actions
 ) {
     constexpr float gizmo_radius = 28.0F;
@@ -114,12 +114,9 @@ ViewportGizmoResult drawViewportGizmo(
         if (active_document == nullptr) {
             ImGui::TextDisabled("Open a project to change its up axis.");
         } else if (ImGui::MenuItem("Switch y/z up")) {
-            active_document->up_axis = active_document->up_axis == UpAxis::Y ? UpAxis::Z : UpAxis::Y;
             if (actions != nullptr) {
-                actions->event_logs.push_back(EditorUiLogEvent{
-                    .origin = "PROJECT",
-                    .message = std::string("Up axis set to ") + mesh::upAxisName(active_document->up_axis) + ".",
-                });
+                actions->request_set_project_up_axis =
+                    active_document->up_axis == UpAxis::Y ? UpAxis::Z : UpAxis::Y;
             }
         }
         ImGui::EndPopup();

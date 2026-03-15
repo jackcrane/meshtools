@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -208,6 +209,7 @@ void ViewportRenderer::ensurePlaceholderMesh() {
 void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_axis) {
     if (document == nullptr) {
         if (index_count_ == 0 || !uploaded_mesh_state_.matches(nullptr, up_axis)) {
+            std::cout << "[RENDERDBG] upload placeholder mesh" << std::endl;
             ensurePlaceholderMesh();
         }
         return;
@@ -216,6 +218,16 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
     if (uploaded_mesh_state_.matches(document, up_axis)) {
         return;
     }
+
+    std::cout
+        << "[RENDERDBG] sync mesh path=\"" << document->source_path.string() << "\""
+        << " uploaded_revision=" << uploaded_mesh_state_.mesh_revision
+        << " document_revision=" << document->mesh_revision
+        << " uploaded_triangles=" << uploaded_mesh_state_.triangle_count
+        << " document_triangles=" << document->triangles.size()
+        << " uploaded_vertices=" << uploaded_mesh_state_.vertex_count
+        << " document_vertices=" << document->positions.size()
+        << std::endl;
 
     const mesh::Vec3 minimum = document->bounds.minimum;
     const mesh::Vec3 maximum = document->bounds.maximum;
@@ -435,6 +447,7 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
     }
     uploaded_mesh_state_ = UploadedMeshState{
         .source_path = document->source_path,
+        .mesh_revision = document->mesh_revision,
         .vertex_count = document->positions.size(),
         .triangle_count = document->triangles.size(),
         .explicit_edge_count = document->explicit_edges.size(),

@@ -6,6 +6,17 @@
 #include "meshtools/ui/EditorDockLayout.h"
 
 namespace meshtools::ui {
+namespace {
+
+std::string historyEntryLabel(const EditorUiState::HistoryEntry& entry) {
+    return "r" + std::to_string(entry.node_id) + "  " + entry.label;
+}
+
+std::string historyBranchLabel(const EditorUiState::HistoryBranchEntry& entry) {
+    return "r" + std::to_string(entry.node_id) + "  " + entry.label;
+}
+
+}  // namespace
 
 void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) {
     constexpr ImGuiWindowFlags pane_flags =
@@ -76,9 +87,73 @@ void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) {
     }
 
     ImGui::Spacing();
+    ImGui::SeparatorText("History");
+    if (state.active_document != nullptr && !state.history_entries.empty()) {
+        ImGui::BeginDisabled(actions == nullptr || !state.can_undo);
+        if (ImGui::Button("Undo") && actions != nullptr) {
+            actions->request_undo = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(actions == nullptr || !state.can_redo);
+        if (ImGui::Button("Redo") && actions != nullptr) {
+            actions->request_redo = true;
+        }
+        ImGui::EndDisabled();
+
+        if (!state.active_history_branch.empty()) {
+            int rollback_position = static_cast<int>(state.active_history_branch_position);
+            const int rollback_max = static_cast<int>(state.active_history_branch.size()) - 1;
+            if (rollback_max <= 0) {
+                ImGui::BeginDisabled();
+                ImGui::SliderInt("Rollback", &rollback_position, 0, 0);
+                ImGui::EndDisabled();
+            } else if (ImGui::SliderInt("Rollback", &rollback_position, 0, rollback_max)) {
+                if (actions != nullptr) {
+                    actions->request_history_node_id =
+                        state.active_history_branch[static_cast<std::size_t>(rollback_position)].node_id;
+                }
+            }
+
+            ImGui::TextDisabled(
+                "%s",
+                historyBranchLabel(state.active_history_branch[state.active_history_branch_position]).c_str()
+            );
+        }
+
+        ImGui::BeginChild("HistoryTree", ImVec2(0.0F, 180.0F), ImGuiChildFlags_Borders);
+        for (const EditorUiState::HistoryEntry& entry : state.history_entries) {
+            if (entry.depth > 0) {
+                ImGui::Indent(static_cast<float>(entry.depth) * 14.0F);
+            }
+
+            if (entry.is_current) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92F, 0.84F, 0.44F, 1.0F));
+            } else if (entry.is_on_active_branch) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78F, 0.80F, 0.83F, 1.0F));
+            }
+
+            const std::string label = historyEntryLabel(entry);
+            if (ImGui::Selectable(label.c_str(), entry.is_current) && actions != nullptr) {
+                actions->request_history_node_id = entry.node_id;
+            }
+
+            if (entry.is_current || entry.is_on_active_branch) {
+                ImGui::PopStyleColor();
+            }
+            if (entry.depth > 0) {
+                ImGui::Unindent(static_cast<float>(entry.depth) * 14.0F);
+            }
+        }
+        ImGui::EndChild();
+    } else {
+        ImGui::TextDisabled("History appears after the first loaded project state.");
+    }
+
+    ImGui::Spacing();
     ImGui::SeparatorText("Inspector");
     if (state.active_document != nullptr) {
-        mesh::MeshDocument& document = *state.active_document;
+        const mesh::MeshDocument& document = *state.active_document;
         ImGui::Text("Path: %s", document.source_path.string().c_str());
         ImGui::Text("Format: %s", document.formatLabel().c_str());
         ImGui::Text("Vertices: %zu", document.positions.size());
@@ -89,12 +164,8 @@ void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) {
         constexpr const char* up_axis_options[] = {"Y", "Z"};
         ImGui::SetNextItemWidth(88.0F);
         if (ImGui::Combo("Project up axis", &selected_up_axis, up_axis_options, IM_ARRAYSIZE(up_axis_options))) {
-            document.up_axis = selected_up_axis == 0 ? UpAxis::Y : UpAxis::Z;
             if (actions != nullptr) {
-                actions->event_logs.push_back(EditorUiLogEvent{
-                    .origin = "PROJECT",
-                    .message = std::string("Up axis set to ") + mesh::upAxisName(document.up_axis) + ".",
-                });
+                actions->request_set_project_up_axis = selected_up_axis == 0 ? UpAxis::Y : UpAxis::Z;
             }
         }
 

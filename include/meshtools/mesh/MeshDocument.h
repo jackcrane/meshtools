@@ -67,6 +67,7 @@ struct MeshDocument {
     std::string display_name_override;
     MeshFormat format = MeshFormat::Obj;
     UpAxis up_axis = UpAxis::Y;
+    std::uint64_t mesh_revision = 0;
     std::vector<Vec3> positions;
     std::vector<Vec3> normals;
     std::vector<Triangle> triangles;

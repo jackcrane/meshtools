@@ -3,6 +3,17 @@
 #include "meshtools/ui/ViewportCommands.h"
 
 namespace meshtools::ui {
+namespace {
+
+bool isCmdOrCtrlHeld(const ImGuiIO& io) {
+#if defined(__APPLE__)
+    return io.KeySuper;
+#else
+    return io.KeyCtrl;
+#endif
+}
+
+}  // namespace
 
 EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version)
     : imgui_system_(window, glsl_version),
@@ -32,6 +43,7 @@ void EditorUi::beginFrame() const {
 
 EditorUiActions EditorUi::draw(const EditorUiState& state) {
     EditorUiActions actions;
+    handleGlobalShortcuts(&actions);
     sequential_shortcuts_.handleInput([this, &state, &actions](ShortcutCommand command) {
         triggerShortcutAction(command, state, &actions);
     });
@@ -104,6 +116,26 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
     });
 
     return actions;
+}
+
+void EditorUi::handleGlobalShortcuts(EditorUiActions* actions) const {
+    if (actions == nullptr) {
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput || !isCmdOrCtrlHeld(io)) {
+        return;
+    }
+
+    if ((io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) || ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
+        actions->request_redo = true;
+        return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+        actions->request_undo = true;
+    }
 }
 
 void EditorUi::endFrame(GLFWwindow* window) const {

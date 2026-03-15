@@ -35,6 +35,7 @@ class EditorUi {
     [[nodiscard]] ImVec2 viewportRenderTargetSize() const;
 
   private:
+    void handleGlobalShortcuts(EditorUiActions* actions) const;
     void triggerShortcutAction(ShortcutCommand action, const EditorUiState& state, EditorUiActions* actions);
     SelectionFilters selection_filters_{};
     ImVec4 clear_color_ = ImVec4(0.10F, 0.12F, 0.15F, 1.00F);

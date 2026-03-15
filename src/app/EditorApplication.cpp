@@ -85,6 +85,37 @@ void appendUniqueIndices(std::vector<std::uint32_t>& target, const std::vector<s
     sortAndUnique(target);
 }
 
+EditorApplication::EditableDocumentState makeEditableDocumentState(const mesh::MeshDocument& document) {
+    return EditorApplication::EditableDocumentState{
+        .up_axis = document.up_axis,
+        .mesh_revision = document.mesh_revision,
+        .positions = document.positions,
+        .normals = document.normals,
+        .triangles = document.triangles,
+        .explicit_edges = document.explicit_edges,
+        .bounds = document.bounds,
+        .entity_sets = document.entity_sets,
+    };
+}
+
+void applyEditableDocumentState(
+    mesh::MeshDocument* document,
+    const EditorApplication::EditableDocumentState& document_state
+) {
+    if (document == nullptr) {
+        return;
+    }
+
+    document->up_axis = document_state.up_axis;
+    document->mesh_revision = document_state.mesh_revision;
+    document->positions = document_state.positions;
+    document->normals = document_state.normals;
+    document->triangles = document_state.triangles;
+    document->explicit_edges = document_state.explicit_edges;
+    document->bounds = document_state.bounds;
+    document->entity_sets = document_state.entity_sets;
+}
+
 render::ViewportRenderer::ExpandSelectionParams makeExpandSelectionParams(
     const ui::EditorUiActions::ExpandSelectionConfig& config
 ) {
@@ -174,6 +205,7 @@ int EditorApplication::run() {
         const ImVec4& clear_color = editor_ui_.clearColor();
         window_.beginFrame(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
         editor_ui_.beginFrame();
+        rebuildDocumentHistoryUiState();
 
         const ui::EditorUiState ui_state{
             .modify_delete_availability =
@@ -192,6 +224,13 @@ int EditorApplication::run() {
             .active_document = active_document_ ? &active_document_.value() : nullptr,
             .entity_sets = active_document_ ? std::span<const mesh::EntitySet>(active_document_->entity_sets) : std::span<const mesh::EntitySet>{},
             .selected_entity_set_index = selected_entity_set_index_,
+            .history_entries = history_entries_,
+            .active_history_branch = active_history_branch_,
+            .active_history_branch_position = active_history_branch_position_,
+            .can_undo = current_history_index_.has_value() && document_history_[*current_history_index_].parent_index.has_value(),
+            .can_redo =
+                current_history_index_.has_value() &&
+                document_history_[*current_history_index_].preferred_child_index.has_value(),
             .log_messages = log_messages_,
             .camera_yaw = viewport_renderer_.camera().yaw,
             .camera_pitch = viewport_renderer_.camera().pitch,
@@ -223,6 +262,15 @@ int EditorApplication::run() {
         for (const ui::EditorUiLogEvent& event_log : actions.event_logs) {
             appendLog(event_log.origin, event_log.message);
         }
+        if (menu_actions.undo || actions.request_undo) {
+            undoDocumentHistory();
+        }
+        if (menu_actions.redo || actions.request_redo) {
+            redoDocumentHistory();
+        }
+        if (actions.request_history_node_id.has_value()) {
+            jumpToDocumentHistoryNode(*actions.request_history_node_id);
+        }
         handleViewportSelectionRequest(actions.viewport_selection);
         if (actions.request_select_edge_loop) {
             handleSelectEdgeLoopRequest();
@@ -232,6 +280,7 @@ int EditorApplication::run() {
         }
         handleSelectSimilarActions(actions);
         handleExpandSelectionActions(actions);
+        handleProjectActions(actions);
         handleModifyCreateFaceRequest(actions);
         handleModifyProjectRequest(actions);
         handleModifyDeleteRequest(actions);
@@ -355,6 +404,7 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
 
     active_document_ = std::move(result.document);
     mesh::ensureRenderableNormals(&active_document_.value());
+    active_document_->mesh_revision = next_mesh_revision_id_++;
     viewport_renderer_.clearSelection();
     viewport_renderer_.clearExpandSelectionPreview();
     active_document_->display_name_override.clear();
@@ -366,6 +416,7 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     expand_selection_feedback_ = {};
     select_similar_feedback_reasons_.clear();
     select_similar_feedback_ = {};
+    resetDocumentHistory("Imported " + active_document_->displayName());
     appendLog(
         "IMPORT",
         "Loaded " + active_document_->displayName() +
@@ -384,6 +435,7 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
 
     active_document_ = std::move(result.document);
     mesh::ensureRenderableNormals(&active_document_.value());
+    active_document_->mesh_revision = next_mesh_revision_id_++;
     viewport_renderer_.clearSelection();
     viewport_renderer_.clearExpandSelectionPreview();
     active_project_path_ = path;
@@ -394,6 +446,7 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
     expand_selection_feedback_ = {};
     select_similar_feedback_reasons_.clear();
     select_similar_feedback_ = {};
+    resetDocumentHistory("Opened " + active_document_->displayName());
     appendLog(
         "PROJECT",
         "Opened " + active_document_->displayName() +
@@ -419,6 +472,25 @@ void EditorApplication::applyViewportCameraInput(const ui::ViewportCameraInput& 
     if (input.zoom_delta != 0.0F) {
         viewport_renderer_.zoom(input.zoom_delta);
     }
+}
+
+void EditorApplication::handleProjectActions(const ui::EditorUiActions& actions) {
+    if (!active_document_.has_value() || !actions.request_set_project_up_axis.has_value()) {
+        return;
+    }
+
+    if (active_document_->up_axis == *actions.request_set_project_up_axis) {
+        return;
+    }
+
+    active_document_->up_axis = *actions.request_set_project_up_axis;
+    bumpMeshRevision();
+    commitDocumentHistory(
+        std::string("Up axis -> ") + mesh::upAxisName(active_document_->up_axis),
+        viewport_renderer_.currentSelection(),
+        selected_entity_set_index_
+    );
+    appendLog("PROJECT", "Up axis set to " + std::string(mesh::upAxisName(active_document_->up_axis)) + '.');
 }
 
 void EditorApplication::handleViewportSelectionRequest(const ui::ViewportSelectionRequest& request) {
@@ -526,6 +598,12 @@ void EditorApplication::handleModifyCreateFaceRequest(const ui::EditorUiActions&
         .face_indices = result.created_face_indices,
         .point_indices = {},
     };
+    bumpMeshRevision();
+    commitDocumentHistory(
+        "Created " + std::to_string(result.created_face_count) + " faces",
+        *pending_renderer_selection_,
+        std::nullopt
+    );
     appendLog("MODIFY", "Created " + std::to_string(result.created_face_count) + " faces.");
 }
 
@@ -565,6 +643,8 @@ void EditorApplication::handleModifyProjectRequest(const ui::EditorUiActions& ac
         .face_indices = {},
         .point_indices = {},
     };
+    bumpMeshRevision();
+    commitDocumentHistory("Projected edge", *pending_renderer_selection_, std::nullopt);
     appendLog(
         "MODIFY",
         "Projected 2 faces and created 1 edge."
@@ -595,6 +675,12 @@ void EditorApplication::handleModifyDeleteRequest(const ui::EditorUiActions& act
     expand_selection_feedback_ = {};
     selected_entity_set_index_.reset();
     pending_renderer_selection_.reset();
+    bumpMeshRevision();
+    commitDocumentHistory(
+        "Deleted geometry",
+        mesh::EntitySelection{},
+        std::nullopt
+    );
     appendLog(
         "MODIFY",
         "Deleted " + std::to_string(result.deleted_face_count) + " faces and " +
@@ -632,8 +718,17 @@ void EditorApplication::handleEntitySetActions(const ui::EditorUiActions& action
                 appendLog("ENTITYSET", "Rename skipped because the entity set name was empty.");
                 return;
             }
+            if (active_document_->entity_sets[index].name == trimmed_name) {
+                appendLog("ENTITYSET", "Rename skipped because the entity set name was unchanged.");
+                return;
+            }
 
             active_document_->entity_sets[index].name = trimmed_name;
+            commitDocumentHistory(
+                "Renamed entity set",
+                viewport_renderer_.currentSelection(),
+                selected_entity_set_index_
+            );
             appendLog("ENTITYSET", "Renamed entity set to " + trimmed_name + '.');
         }
     }
@@ -785,6 +880,11 @@ void EditorApplication::createEntitySetFromSelection(mesh::EntitySelection selec
     };
     active_document_->entity_sets.push_back(entity_set);
     selected_entity_set_index_ = active_document_->entity_sets.size() - 1U;
+    commitDocumentHistory(
+        "Created " + entity_set.name,
+        viewport_renderer_.currentSelection(),
+        selected_entity_set_index_
+    );
     appendLog(
         "ENTITYSET",
         "Created " + entity_set.name + " (" + std::to_string(entity_set.members.totalCount()) + " entities)."
@@ -811,10 +911,22 @@ void EditorApplication::addSelectionToEntitySet(std::size_t index, mesh::EntityS
     }
 
     mesh::EntitySet& entity_set = active_document_->entity_sets[index];
+    const mesh::EntitySelection previous_members = entity_set.members;
     appendUniqueIndices(entity_set.members.edge_indices, selection.edge_indices);
     appendUniqueIndices(entity_set.members.face_indices, selection.face_indices);
     appendUniqueIndices(entity_set.members.point_indices, selection.point_indices);
+    if (entity_set.members.edge_indices == previous_members.edge_indices &&
+        entity_set.members.face_indices == previous_members.face_indices &&
+        entity_set.members.point_indices == previous_members.point_indices) {
+        appendLog("ENTITYSET", "Add skipped because the selection was already in " + entity_set.name + '.');
+        return;
+    }
     selected_entity_set_index_ = index;
+    commitDocumentHistory(
+        "Updated " + entity_set.name,
+        viewport_renderer_.currentSelection(),
+        selected_entity_set_index_
+    );
     appendLog(
         "ENTITYSET",
         "Added selection to " + entity_set.name +
@@ -834,6 +946,245 @@ void EditorApplication::selectEntitySet(std::size_t index) {
         "Selected " + active_document_->entity_sets[index].name +
             " (" + std::to_string(active_document_->entity_sets[index].members.totalCount()) + " entities)."
     );
+}
+
+void EditorApplication::bumpMeshRevision() {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    active_document_->mesh_revision = next_mesh_revision_id_++;
+    std::cout
+        << "[HISTORYDBG] assigned mesh revision=" << active_document_->mesh_revision
+        << " triangles=" << active_document_->triangles.size()
+        << " vertices=" << active_document_->positions.size()
+        << std::endl;
+}
+
+void EditorApplication::resetDocumentHistory(std::string root_label) {
+    document_history_.clear();
+    history_entries_.clear();
+    active_history_branch_.clear();
+    active_history_branch_position_ = 0;
+    current_history_index_.reset();
+    next_history_node_id_ = 1;
+    next_mesh_revision_id_ = std::max(next_mesh_revision_id_, active_document_->mesh_revision + 1U);
+
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    document_history_.push_back(DocumentHistoryNode{
+        .node_id = next_history_node_id_++,
+        .parent_index = std::nullopt,
+        .child_indices = {},
+        .preferred_child_index = std::nullopt,
+        .label = std::move(root_label),
+        .snapshot = captureDocumentHistorySnapshot(mesh::EntitySelection{}, std::nullopt),
+    });
+    current_history_index_ = 0;
+}
+
+void EditorApplication::commitDocumentHistory(
+    std::string label,
+    const mesh::EntitySelection& selection,
+    std::optional<std::size_t> selected_entity_set_index
+) {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    if (!current_history_index_.has_value()) {
+        resetDocumentHistory("Current document");
+    }
+
+    const std::size_t parent_index = *current_history_index_;
+    document_history_.push_back(DocumentHistoryNode{
+        .node_id = next_history_node_id_++,
+        .parent_index = parent_index,
+        .child_indices = {},
+        .preferred_child_index = std::nullopt,
+        .label = std::move(label),
+        .snapshot = captureDocumentHistorySnapshot(selection, selected_entity_set_index),
+    });
+
+    const std::size_t new_index = document_history_.size() - 1U;
+    document_history_[parent_index].child_indices.push_back(new_index);
+    document_history_[parent_index].preferred_child_index = new_index;
+    current_history_index_ = new_index;
+    setPreferredHistoryPathToNode(new_index);
+    std::cout
+        << "[HISTORYDBG] commit node=r" << document_history_[new_index].node_id
+        << " parent=r" << document_history_[parent_index].node_id
+        << " label=\"" << document_history_[new_index].label << "\""
+        << " mesh_revision=" << document_history_[new_index].snapshot.document_state.mesh_revision
+        << std::endl;
+}
+
+void EditorApplication::undoDocumentHistory() {
+    if (!current_history_index_.has_value()) {
+        return;
+    }
+
+    const std::optional<std::size_t> parent_index = document_history_[*current_history_index_].parent_index;
+    if (!parent_index.has_value()) {
+        appendLog("HISTORY", "Undo unavailable.");
+        return;
+    }
+
+    restoreDocumentHistoryNode(*parent_index, "Undo");
+}
+
+void EditorApplication::redoDocumentHistory() {
+    if (!current_history_index_.has_value()) {
+        return;
+    }
+
+    const std::optional<std::size_t> child_index = document_history_[*current_history_index_].preferred_child_index;
+    if (!child_index.has_value()) {
+        appendLog("HISTORY", "Redo unavailable.");
+        return;
+    }
+
+    restoreDocumentHistoryNode(*child_index, "Redo");
+}
+
+void EditorApplication::jumpToDocumentHistoryNode(std::size_t node_id) {
+    const std::optional<std::size_t> node_index = historyNodeIndexById(node_id);
+    if (!node_index.has_value()) {
+        return;
+    }
+
+    restoreDocumentHistoryNode(*node_index, "Jumped to");
+}
+
+void EditorApplication::restoreDocumentHistoryNode(std::size_t node_index, std::string action) {
+    if (!active_document_.has_value() || node_index >= document_history_.size()) {
+        return;
+    }
+
+    const DocumentHistorySnapshot& snapshot = document_history_[node_index].snapshot;
+    applyEditableDocumentState(&active_document_.value(), snapshot.document_state);
+    viewport_renderer_.clearSelection();
+    pending_renderer_selection_ = snapshot.selection;
+    selected_entity_set_index_ = snapshot.selected_entity_set_index;
+    if (selected_entity_set_index_.has_value() && *selected_entity_set_index_ >= active_document_->entity_sets.size()) {
+        selected_entity_set_index_.reset();
+    }
+    viewport_renderer_.clearExpandSelectionPreview();
+    viewport_renderer_.clearSelectSimilarPreview();
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
+    select_similar_feedback_reasons_.clear();
+    select_similar_feedback_ = {};
+    current_history_index_ = node_index;
+    setPreferredHistoryPathToNode(node_index);
+    next_mesh_revision_id_ = std::max(
+        next_mesh_revision_id_,
+        document_history_[node_index].snapshot.document_state.mesh_revision + 1U
+    );
+    std::cout
+        << "[HISTORYDBG] restore node=r" << document_history_[node_index].node_id
+        << " label=\"" << document_history_[node_index].label << "\""
+        << " mesh_revision=" << active_document_->mesh_revision
+        << " triangles=" << active_document_->triangles.size()
+        << " vertices=" << active_document_->positions.size()
+        << std::endl;
+    appendLog("HISTORY", std::move(action) + " " + document_history_[node_index].label + '.');
+}
+
+void EditorApplication::rebuildDocumentHistoryUiState() {
+    history_entries_.clear();
+    active_history_branch_.clear();
+    active_history_branch_position_ = 0;
+
+    if (document_history_.empty()) {
+        return;
+    }
+
+    std::vector<std::size_t> active_branch_indices;
+    std::size_t branch_index = 0;
+    while (branch_index < document_history_.size()) {
+        active_branch_indices.push_back(branch_index);
+        if (!document_history_[branch_index].preferred_child_index.has_value()) {
+            break;
+        }
+        branch_index = *document_history_[branch_index].preferred_child_index;
+    }
+
+    for (std::size_t index : active_branch_indices) {
+        active_history_branch_.push_back(ui::EditorUiState::HistoryBranchEntry{
+            .node_id = document_history_[index].node_id,
+            .label = document_history_[index].label,
+        });
+    }
+    if (current_history_index_.has_value()) {
+        const auto current_match = std::find(active_branch_indices.begin(), active_branch_indices.end(), *current_history_index_);
+        if (current_match != active_branch_indices.end()) {
+            active_history_branch_position_ =
+                static_cast<std::size_t>(std::distance(active_branch_indices.begin(), current_match));
+        }
+    }
+
+    const auto append_entries = [&](const auto& self, std::size_t node_index, std::size_t depth) -> void {
+        const DocumentHistoryNode& node = document_history_[node_index];
+        const bool is_on_active_branch =
+            std::find(active_branch_indices.begin(), active_branch_indices.end(), node_index) != active_branch_indices.end();
+        history_entries_.push_back(ui::EditorUiState::HistoryEntry{
+            .node_id = node.node_id,
+            .depth = depth,
+            .label = node.label,
+            .is_current = current_history_index_.has_value() && *current_history_index_ == node_index,
+            .is_on_active_branch = is_on_active_branch,
+            .has_children = !node.child_indices.empty(),
+        });
+        for (std::size_t child_index : node.child_indices) {
+            self(self, child_index, depth + 1U);
+        }
+    };
+
+    append_entries(append_entries, 0, 0);
+}
+
+void EditorApplication::setPreferredHistoryPathToNode(std::size_t node_index) {
+    while (node_index < document_history_.size() && document_history_[node_index].parent_index.has_value()) {
+        const std::size_t parent_index = *document_history_[node_index].parent_index;
+        document_history_[parent_index].preferred_child_index = node_index;
+        node_index = parent_index;
+    }
+}
+
+EditorApplication::DocumentHistorySnapshot EditorApplication::captureDocumentHistorySnapshot(
+    const mesh::EntitySelection& selection,
+    std::optional<std::size_t> selected_entity_set_index
+) const {
+    DocumentHistorySnapshot snapshot{
+        .document_state = active_document_.has_value()
+            ? makeEditableDocumentState(active_document_.value())
+            : EditableDocumentState{},
+        .selection = selection,
+        .selected_entity_set_index = selected_entity_set_index,
+    };
+    if (snapshot.selected_entity_set_index.has_value() &&
+        snapshot.selected_entity_set_index.value() >= snapshot.document_state.entity_sets.size()) {
+        snapshot.selected_entity_set_index.reset();
+    }
+    return snapshot;
+}
+
+std::optional<std::size_t> EditorApplication::historyNodeIndexById(std::size_t node_id) const {
+    const auto match = std::find_if(
+        document_history_.begin(),
+        document_history_.end(),
+        [node_id](const DocumentHistoryNode& node) {
+            return node.node_id == node_id;
+        }
+    );
+    if (match == document_history_.end()) {
+        return std::nullopt;
+    }
+
+    return static_cast<std::size_t>(std::distance(document_history_.begin(), match));
 }
 
 std::string EditorApplication::makeDefaultEntitySetName() const {

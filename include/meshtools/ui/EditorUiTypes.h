@@ -17,6 +17,20 @@
 namespace meshtools::ui {
 
 struct EditorUiState {
+    struct HistoryEntry {
+        std::size_t node_id = 0;
+        std::size_t depth = 0;
+        std::string label;
+        bool is_current = false;
+        bool is_on_active_branch = false;
+        bool has_children = false;
+    };
+
+    struct HistoryBranchEntry {
+        std::size_t node_id = 0;
+        std::string label;
+    };
+
     struct ExpandSelectionFeedback {
         bool available = false;
         bool linear_intersection_enabled = false;
@@ -38,9 +52,14 @@ struct EditorUiState {
     mesh::ModifyProjectAvailability modify_project_availability;
     mesh::EntitySelection current_selection;
 
-    mesh::MeshDocument* active_document = nullptr;
+    const mesh::MeshDocument* active_document = nullptr;
     std::span<const mesh::EntitySet> entity_sets;
     std::optional<std::size_t> selected_entity_set_index;
+    std::span<const HistoryEntry> history_entries;
+    std::span<const HistoryBranchEntry> active_history_branch;
+    std::size_t active_history_branch_position = 0;
+    bool can_undo = false;
+    bool can_redo = false;
     std::span<const std::string> log_messages;
     float camera_yaw = 0.0F;
     float camera_pitch = 0.0F;
@@ -202,6 +221,8 @@ struct EditorUiActions {
     bool request_exit = false;
     bool request_open_document = false;
     bool request_save_project = false;
+    bool request_undo = false;
+    bool request_redo = false;
     bool request_select_edge_loop = false;
     bool select_similar_dialog_open = false;
     bool request_invert_selection = false;
@@ -211,8 +232,10 @@ struct EditorUiActions {
     bool request_select_document_scene_item = false;
     bool expand_selection_dialog_open = false;
     bool modify_delete_dialog_open = false;
+    std::optional<UpAxis> request_set_project_up_axis;
     std::optional<std::size_t> request_add_selection_to_existing_entity_set_index;
     std::optional<std::size_t> request_select_entity_set_index;
+    std::optional<std::size_t> request_history_node_id;
     std::optional<EntitySetRenameRequest> request_rename_entity_set;
     std::optional<ExpandSelectionRequest> request_expand_selection;
     std::optional<ModifyDeleteRequest> request_modify_delete;

@@ -140,6 +140,7 @@ class ViewportRenderer {
   private:
     struct UploadedMeshState {
         std::filesystem::path source_path;
+        std::uint64_t mesh_revision = 0;
         std::size_t vertex_count = 0;
         std::size_t triangle_count = 0;
         std::size_t explicit_edge_count = 0;

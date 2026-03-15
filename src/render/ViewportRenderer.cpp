@@ -295,6 +295,7 @@ std::size_t ViewportRenderer::SelectionSummary::totalCount() const {
 bool ViewportRenderer::UploadedMeshState::matches(const mesh::MeshDocument* document, UpAxis up_axis) const {
     if (document == nullptr) {
         return source_path.empty() &&
+               mesh_revision == 0 &&
                vertex_count == 0 &&
                triangle_count == 0 &&
                explicit_edge_count == 0 &&
@@ -302,6 +303,7 @@ bool ViewportRenderer::UploadedMeshState::matches(const mesh::MeshDocument* docu
     }
 
     return source_path == document->source_path &&
+           mesh_revision == document->mesh_revision &&
            vertex_count == document->positions.size() &&
            triangle_count == document->triangles.size() &&
            explicit_edge_count == document->explicit_edges.size() &&
