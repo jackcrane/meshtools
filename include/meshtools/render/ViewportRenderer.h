@@ -14,6 +14,31 @@ namespace meshtools::render {
 
 class ViewportRenderer {
   public:
+    struct Color {
+        float r = 0.0F;
+        float g = 0.0F;
+        float b = 0.0F;
+        float a = 1.0F;
+    };
+
+    struct ThemeColors {
+        Color clear_color{0.14F, 0.15F, 0.17F, 1.0F};
+        Color mesh_base_color{0.74F, 0.78F, 0.84F, 1.0F};
+        Color mesh_sky_color{0.20F, 0.24F, 0.30F, 1.0F};
+        Color mesh_ground_color{0.08F, 0.07F, 0.06F, 1.0F};
+        Color mesh_key_light_color{0.98F, 0.96F, 0.92F, 1.0F};
+        Color mesh_fill_light_color{0.44F, 0.55F, 0.76F, 1.0F};
+        Color mesh_rim_light_color{0.96F, 0.84F, 0.72F, 1.0F};
+        Color wireframe_color{0.07F, 0.08F, 0.10F, 0.92F};
+        Color point_color{0.00F, 0.00F, 0.00F, 1.0F};
+        Color document_edge_color{0.03F, 0.03F, 0.03F, 1.0F};
+        Color selected_face_color{0.93F, 0.59F, 0.18F, 0.56F};
+        Color preview_face_color{0.18F, 0.54F, 0.95F, 0.42F};
+        Color preview_edge_color{0.22F, 0.68F, 1.0F, 1.0F};
+        Color selected_edge_color{1.0F, 0.52F, 0.04F, 1.0F};
+        Color selected_point_color{1.0F, 0.52F, 0.04F, 1.0F};
+    };
+
     enum class SelectionMode {
         Replace,
         Toggle,
@@ -44,6 +69,7 @@ class ViewportRenderer {
         bool shade_triangles = true;
         bool show_points = false;
         UpAxis source_up_axis = UpAxis::Y;
+        ThemeColors theme_colors{};
     };
 
     enum class ExpandSelectionMethod {

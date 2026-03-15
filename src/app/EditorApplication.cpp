@@ -194,6 +194,7 @@ int EditorApplication::run() {
                     !active_document_.has_value() || active_document_->up_axis == mesh::UpAxis::Y
                         ? render::ViewportRenderer::UpAxis::Y
                         : render::ViewportRenderer::UpAxis::Z,
+                .theme_colors = editor_ui_.viewportThemeColors(),
             }
         );
         if (pending_renderer_selection_.has_value()) {

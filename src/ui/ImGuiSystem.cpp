@@ -93,8 +93,27 @@ float luminance(const ImVec4& color) {
     return color.x * 0.2126F + color.y * 0.7152F + color.z * 0.0722F;
 }
 
+ImVec4 mix(const ImVec4& left, const ImVec4& right, float amount) {
+    const float clamped_amount = std::clamp(amount, 0.0F, 1.0F);
+    return ImVec4(
+        left.x + ((right.x - left.x) * clamped_amount),
+        left.y + ((right.y - left.y) * clamped_amount),
+        left.z + ((right.z - left.z) * clamped_amount),
+        left.w + ((right.w - left.w) * clamped_amount)
+    );
+}
+
 ImVec4 withAlpha(const ImVec4& color, float alpha) {
     return ImVec4(color.x, color.y, color.z, alpha);
+}
+
+render::ViewportRenderer::Color toRendererColor(const ImVec4& color) {
+    return render::ViewportRenderer::Color{
+        .r = color.x,
+        .g = color.y,
+        .b = color.z,
+        .a = color.w,
+    };
 }
 
 void mergeSymbolFont(ImGuiIO& io) {
@@ -164,6 +183,55 @@ void applyBuiltinTheme(ImVec4* clear_color) {
         *clear_color = ImVec4(0.10F, 0.12F, 0.15F, 1.00F);
     }
     applyViewportStyleAdjustments();
+}
+
+render::ViewportRenderer::ThemeColors makeBuiltinRendererTheme() {
+    return render::ViewportRenderer::ThemeColors{};
+}
+
+render::ViewportRenderer::ThemeColors makeBase16RendererTheme(const ImGuiSystem::ThemeOption& theme) {
+    const ImVec4& base00 = theme.base_colors[0];
+    const ImVec4& base01 = theme.base_colors[1];
+    const ImVec4& base02 = theme.base_colors[2];
+    const ImVec4& base03 = theme.base_colors[3];
+    const ImVec4& base04 = theme.base_colors[4];
+    const ImVec4& base05 = theme.base_colors[5];
+    const ImVec4& base07 = theme.base_colors[7];
+    const ImVec4& base09 = theme.base_colors[9];
+    const ImVec4& base0A = theme.base_colors[10];
+    const ImVec4& base0C = theme.base_colors[12];
+    const ImVec4& base0D = theme.base_colors[13];
+    const ImVec4& base0E = theme.base_colors[14];
+    const ImVec4& base0F = theme.base_colors[15];
+
+    const bool dark_background = luminance(base00) < 0.5F;
+    const ImVec4 mesh_base = dark_background ? mix(base05, base07, 0.25F) : mix(base05, base07, 0.10F);
+    const ImVec4 mesh_sky = mix(base00, base0D, dark_background ? 0.22F : 0.15F);
+    const ImVec4 mesh_ground = mix(base00, base0F, dark_background ? 0.16F : 0.08F);
+    const ImVec4 mesh_key = mix(base07, base0A, dark_background ? 0.18F : 0.10F);
+    const ImVec4 mesh_fill = mix(base0D, base0C, 0.35F);
+    const ImVec4 mesh_rim = mix(base09, base0E, 0.24F);
+    const ImVec4 wireframe = withAlpha(dark_background ? mix(base02, base05, 0.30F) : mix(base03, base04, 0.65F), 0.95F);
+    const ImVec4 points = withAlpha(dark_background ? base04 : mix(base03, base04, 0.70F), 1.0F);
+    const ImVec4 document_edges = withAlpha(dark_background ? mix(base01, base04, 0.45F) : mix(base02, base04, 0.75F), 1.0F);
+
+    render::ViewportRenderer::ThemeColors renderer_theme;
+    renderer_theme.clear_color = toRendererColor(withAlpha(base00, 1.0F));
+    renderer_theme.mesh_base_color = toRendererColor(withAlpha(mesh_base, 1.0F));
+    renderer_theme.mesh_sky_color = toRendererColor(withAlpha(mesh_sky, 1.0F));
+    renderer_theme.mesh_ground_color = toRendererColor(withAlpha(mesh_ground, 1.0F));
+    renderer_theme.mesh_key_light_color = toRendererColor(withAlpha(mesh_key, 1.0F));
+    renderer_theme.mesh_fill_light_color = toRendererColor(withAlpha(mesh_fill, 1.0F));
+    renderer_theme.mesh_rim_light_color = toRendererColor(withAlpha(mesh_rim, 1.0F));
+    renderer_theme.wireframe_color = toRendererColor(wireframe);
+    renderer_theme.point_color = toRendererColor(points);
+    renderer_theme.document_edge_color = toRendererColor(document_edges);
+    renderer_theme.selected_face_color = toRendererColor(withAlpha(base09, dark_background ? 0.42F : 0.34F));
+    renderer_theme.preview_face_color = toRendererColor(withAlpha(base0D, dark_background ? 0.36F : 0.28F));
+    renderer_theme.preview_edge_color = toRendererColor(withAlpha(base0D, 1.0F));
+    renderer_theme.selected_edge_color = toRendererColor(withAlpha(base09, 1.0F));
+    renderer_theme.selected_point_color = toRendererColor(withAlpha(base0A, 1.0F));
+    return renderer_theme;
 }
 
 void applyBase16Theme(const ImGuiSystem::ThemeOption& theme, ImVec4* clear_color) {
@@ -544,6 +612,10 @@ const ImVec4& ImGuiSystem::clearColor() const {
     return clear_color_;
 }
 
+const render::ViewportRenderer::ThemeColors& ImGuiSystem::rendererThemeColors() const {
+    return renderer_theme_colors_;
+}
+
 bool ImGuiSystem::previewThemeById(const std::string& theme_id) {
     const ThemeOption* theme = findThemeById(themes_, theme_id);
     if (theme == nullptr) {
@@ -553,8 +625,10 @@ bool ImGuiSystem::previewThemeById(const std::string& theme_id) {
     preview_theme_id_ = theme->id;
     if (theme->is_builtin) {
         applyBuiltinTheme(&clear_color_);
+        renderer_theme_colors_ = makeBuiltinRendererTheme();
     } else {
         applyBase16Theme(*theme, &clear_color_);
+        renderer_theme_colors_ = makeBase16RendererTheme(*theme);
     }
     return true;
 }

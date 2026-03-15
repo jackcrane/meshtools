@@ -1,6 +1,7 @@
 #pragma once
 
 #include "meshtools/ui/BottomPane.h"
+#include "meshtools/render/ViewportRenderer.h"
 #include "meshtools/ui/EditorDockLayout.h"
 #include "meshtools/ui/EditorUiTypes.h"
 #include "meshtools/ui/ImGuiSystem.h"
@@ -31,6 +32,7 @@ class EditorUi {
     [[nodiscard]] const FileImportSettings& fileImportSettings() const;
     [[nodiscard]] const SelectionFilters& selectionFilters() const;
     [[nodiscard]] const ViewportDisplaySettings& viewportDisplaySettings() const;
+    [[nodiscard]] const render::ViewportRenderer::ThemeColors& viewportThemeColors() const;
     [[nodiscard]] ImVec2 viewportRenderSize() const;
     [[nodiscard]] ImVec2 viewportRenderTargetSize() const;
 

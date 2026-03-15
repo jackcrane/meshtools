@@ -122,15 +122,17 @@ void LeftPane::draw(const EditorUiState& state, EditorUiActions* actions) {
         }
 
         ImGui::BeginChild("HistoryTree", ImVec2(0.0F, 180.0F), ImGuiChildFlags_Borders);
+        const ImVec4 current_history_color = ImGui::GetStyleColorVec4(ImGuiCol_PlotHistogram);
+        const ImVec4 active_branch_history_color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
         for (const EditorUiState::HistoryEntry& entry : state.history_entries) {
             if (entry.depth > 0) {
                 ImGui::Indent(static_cast<float>(entry.depth) * 14.0F);
             }
 
             if (entry.is_current) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92F, 0.84F, 0.44F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_Text, current_history_color);
             } else if (entry.is_on_active_branch) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78F, 0.80F, 0.83F, 1.0F));
+                ImGui::PushStyleColor(ImGuiCol_Text, active_branch_history_color);
             }
 
             const std::string label = historyEntryLabel(entry);

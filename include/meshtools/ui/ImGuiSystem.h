@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "imgui.h"
+#include "meshtools/render/ViewportRenderer.h"
 
 struct GLFWwindow;
 
@@ -33,6 +34,7 @@ class ImGuiSystem {
     [[nodiscard]] const std::string& savedThemeId() const;
     [[nodiscard]] bool hasUnsavedThemePreview() const;
     [[nodiscard]] const ImVec4& clearColor() const;
+    [[nodiscard]] const render::ViewportRenderer::ThemeColors& rendererThemeColors() const;
     bool previewThemeById(const std::string& theme_id);
     bool savePreviewTheme();
     bool revertToSavedTheme();
@@ -43,6 +45,7 @@ class ImGuiSystem {
     std::string preview_theme_id_ = "imgui";
     std::string saved_theme_id_ = "imgui";
     ImVec4 clear_color_ = ImVec4(0.10F, 0.12F, 0.15F, 1.00F);
+    render::ViewportRenderer::ThemeColors renderer_theme_colors_{};
 };
 
 }  // namespace meshtools::ui

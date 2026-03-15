@@ -167,6 +167,10 @@ const ViewportDisplaySettings& EditorUi::viewportDisplaySettings() const {
     return viewport_display_settings_;
 }
 
+const render::ViewportRenderer::ThemeColors& EditorUi::viewportThemeColors() const {
+    return imgui_system_.rendererThemeColors();
+}
+
 ImVec2 EditorUi::viewportRenderSize() const {
     return viewport_pane_.renderSize();
 }

@@ -98,7 +98,12 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
     glViewport(0, 0, safe_width, safe_height);
     glEnable(GL_DEPTH_TEST);
-    glClearColor(0.14F, 0.15F, 0.17F, 1.0F);
+    glClearColor(
+        display_settings.theme_colors.clear_color.r,
+        display_settings.theme_colors.clear_color.g,
+        display_settings.theme_colors.clear_color.b,
+        display_settings.theme_colors.clear_color.a
+    );
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(shader_program_);
@@ -123,9 +128,67 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
     const int camera_position_location = glGetUniformLocation(shader_program_, "u_camera_position");
     const int render_mode_location = glGetUniformLocation(shader_program_, "u_render_mode");
     const int point_size_location = glGetUniformLocation(shader_program_, "u_point_size");
+    const int wireframe_color_location = glGetUniformLocation(shader_program_, "u_wireframe_color");
+    const int point_color_location = glGetUniformLocation(shader_program_, "u_point_color");
+    const int base_color_location = glGetUniformLocation(shader_program_, "u_base_color");
+    const int sky_ambient_color_location = glGetUniformLocation(shader_program_, "u_sky_ambient_color");
+    const int ground_bounce_color_location = glGetUniformLocation(shader_program_, "u_ground_bounce_color");
+    const int key_light_color_location = glGetUniformLocation(shader_program_, "u_key_light_color");
+    const int fill_light_color_location = glGetUniformLocation(shader_program_, "u_fill_light_color");
+    const int rim_light_color_location = glGetUniformLocation(shader_program_, "u_rim_light_color");
     glUniformMatrix4fv(mvp_location, 1, GL_FALSE, mvp.data());
     glUniform3f(camera_position_location, camera_data.eye.x, camera_data.eye.y, camera_data.eye.z);
     glUniform1f(point_size_location, detail::kDefaultPointSize);
+    glUniform4f(
+        wireframe_color_location,
+        display_settings.theme_colors.wireframe_color.r,
+        display_settings.theme_colors.wireframe_color.g,
+        display_settings.theme_colors.wireframe_color.b,
+        display_settings.theme_colors.wireframe_color.a
+    );
+    glUniform4f(
+        point_color_location,
+        display_settings.theme_colors.point_color.r,
+        display_settings.theme_colors.point_color.g,
+        display_settings.theme_colors.point_color.b,
+        display_settings.theme_colors.point_color.a
+    );
+    glUniform3f(
+        base_color_location,
+        display_settings.theme_colors.mesh_base_color.r,
+        display_settings.theme_colors.mesh_base_color.g,
+        display_settings.theme_colors.mesh_base_color.b
+    );
+    glUniform3f(
+        sky_ambient_color_location,
+        display_settings.theme_colors.mesh_sky_color.r,
+        display_settings.theme_colors.mesh_sky_color.g,
+        display_settings.theme_colors.mesh_sky_color.b
+    );
+    glUniform3f(
+        ground_bounce_color_location,
+        display_settings.theme_colors.mesh_ground_color.r,
+        display_settings.theme_colors.mesh_ground_color.g,
+        display_settings.theme_colors.mesh_ground_color.b
+    );
+    glUniform3f(
+        key_light_color_location,
+        display_settings.theme_colors.mesh_key_light_color.r,
+        display_settings.theme_colors.mesh_key_light_color.g,
+        display_settings.theme_colors.mesh_key_light_color.b
+    );
+    glUniform3f(
+        fill_light_color_location,
+        display_settings.theme_colors.mesh_fill_light_color.r,
+        display_settings.theme_colors.mesh_fill_light_color.g,
+        display_settings.theme_colors.mesh_fill_light_color.b
+    );
+    glUniform3f(
+        rim_light_color_location,
+        display_settings.theme_colors.mesh_rim_light_color.r,
+        display_settings.theme_colors.mesh_rim_light_color.g,
+        display_settings.theme_colors.mesh_rim_light_color.b
+    );
 
     glBindVertexArray(vertex_array_);
 
@@ -170,7 +233,13 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
 
     if (document_edge_vertex_count_ > 0U) {
         glBindVertexArray(document_edge_vertex_array_);
-        glUniform4f(highlight_color_location, 0.03F, 0.03F, 0.03F, 1.0F);
+        glUniform4f(
+            highlight_color_location,
+            display_settings.theme_colors.document_edge_color.r,
+            display_settings.theme_colors.document_edge_color.g,
+            display_settings.theme_colors.document_edge_color.b,
+            display_settings.theme_colors.document_edge_color.a
+        );
         glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
         glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias * 0.75F);
         glUniform1i(highlight_round_points_location, 0);
@@ -181,7 +250,13 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
     if (selection_summary_.totalCount() > 0U) {
         if (selected_face_vertex_count_ > 0U) {
             glBindVertexArray(selected_face_vertex_array_);
-            glUniform4f(highlight_color_location, 0.93F, 0.59F, 0.18F, 0.56F);
+            glUniform4f(
+                highlight_color_location,
+                display_settings.theme_colors.selected_face_color.r,
+                display_settings.theme_colors.selected_face_color.g,
+                display_settings.theme_colors.selected_face_color.b,
+                display_settings.theme_colors.selected_face_color.a
+            );
             glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
             glUniform1f(highlight_depth_bias_location, detail::kFaceDepthBias);
             glUniform1i(highlight_round_points_location, 0);
@@ -190,7 +265,13 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
 
         if (preview_face_vertex_count_ > 0U) {
             glBindVertexArray(preview_face_vertex_array_);
-            glUniform4f(highlight_color_location, 0.18F, 0.54F, 0.95F, 0.42F);
+            glUniform4f(
+                highlight_color_location,
+                display_settings.theme_colors.preview_face_color.r,
+                display_settings.theme_colors.preview_face_color.g,
+                display_settings.theme_colors.preview_face_color.b,
+                display_settings.theme_colors.preview_face_color.a
+            );
             glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
             glUniform1f(highlight_depth_bias_location, detail::kFaceDepthBias * 0.5F);
             glUniform1i(highlight_round_points_location, 0);
@@ -199,7 +280,13 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
 
         if (preview_edge_vertex_count_ > 0U) {
             glBindVertexArray(preview_edge_vertex_array_);
-            glUniform4f(highlight_color_location, 0.22F, 0.68F, 1.0F, 1.0F);
+            glUniform4f(
+                highlight_color_location,
+                display_settings.theme_colors.preview_edge_color.r,
+                display_settings.theme_colors.preview_edge_color.g,
+                display_settings.theme_colors.preview_edge_color.b,
+                display_settings.theme_colors.preview_edge_color.a
+            );
             glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
             glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias * 0.85F);
             glUniform1i(highlight_round_points_location, 0);
@@ -209,7 +296,13 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
 
         if (selected_edge_vertex_count_ > 0U) {
             glBindVertexArray(selected_edge_vertex_array_);
-            glUniform4f(highlight_color_location, 1.0F, 0.52F, 0.04F, 1.0F);
+            glUniform4f(
+                highlight_color_location,
+                display_settings.theme_colors.selected_edge_color.r,
+                display_settings.theme_colors.selected_edge_color.g,
+                display_settings.theme_colors.selected_edge_color.b,
+                display_settings.theme_colors.selected_edge_color.a
+            );
             glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
             glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias);
             glUniform1i(highlight_round_points_location, 0);
@@ -219,7 +312,13 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
 
         if (selected_point_vertex_count_ > 0U) {
             glBindVertexArray(selected_point_vertex_array_);
-            glUniform4f(highlight_color_location, 1.0F, 0.52F, 0.04F, 1.0F);
+            glUniform4f(
+                highlight_color_location,
+                display_settings.theme_colors.selected_point_color.r,
+                display_settings.theme_colors.selected_point_color.g,
+                display_settings.theme_colors.selected_point_color.b,
+                display_settings.theme_colors.selected_point_color.a
+            );
             glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
             glUniform1f(highlight_depth_bias_location, detail::kPointDepthBias);
             glUniform1i(highlight_round_points_location, 1);

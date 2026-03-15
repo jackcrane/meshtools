@@ -46,11 +46,19 @@ in vec3 v_position;
 in vec3 v_normal;
 uniform vec3 u_camera_position;
 uniform int u_render_mode;
+uniform vec4 u_wireframe_color;
+uniform vec4 u_point_color;
+uniform vec3 u_base_color;
+uniform vec3 u_sky_ambient_color;
+uniform vec3 u_ground_bounce_color;
+uniform vec3 u_key_light_color;
+uniform vec3 u_fill_light_color;
+uniform vec3 u_rim_light_color;
 out vec4 out_color;
 
 void main() {
     if (u_render_mode == 1) {
-        out_color = vec4(0.07, 0.08, 0.10, 0.92);
+        out_color = u_wireframe_color;
         return;
     }
 
@@ -64,7 +72,7 @@ void main() {
             discard;
         }
 
-        out_color = vec4(vec3(0.0), alpha);
+        out_color = vec4(u_point_color.rgb, alpha * u_point_color.a);
         return;
     }
 
@@ -81,12 +89,12 @@ void main() {
     float sky = clamp((normal.y * 0.5) + 0.5, 0.0, 1.0);
     float ground = clamp((-normal.y * 0.5) + 0.5, 0.0, 1.0);
 
-    vec3 base_color = vec3(0.74, 0.78, 0.84);
-    vec3 sky_ambient = vec3(0.20, 0.24, 0.30) * sky;
-    vec3 ground_bounce = vec3(0.08, 0.07, 0.06) * ground;
-    vec3 key_light = vec3(0.98, 0.96, 0.92) * key * 0.95;
-    vec3 fill_light = vec3(0.44, 0.55, 0.76) * fill * 0.50;
-    vec3 rim_light = vec3(0.96, 0.84, 0.72) * rim * 0.65;
+    vec3 base_color = u_base_color;
+    vec3 sky_ambient = u_sky_ambient_color * sky;
+    vec3 ground_bounce = u_ground_bounce_color * ground;
+    vec3 key_light = u_key_light_color * key * 0.95;
+    vec3 fill_light = u_fill_light_color * fill * 0.50;
+    vec3 rim_light = u_rim_light_color * rim * 0.65;
 
     vec3 lit_color = (base_color * (sky_ambient + ground_bounce + vec3(0.10))) + key_light + fill_light + rim_light;
     out_color = vec4(lit_color, 1.0);

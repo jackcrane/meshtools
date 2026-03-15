@@ -55,14 +55,17 @@ void appendSettingsLog(EditorUiActions* actions, const std::string& message) {
 
 void drawThemeRow(const ImGuiSystem::ThemeOption& theme, bool selected, float row_height) {
     const ImVec2 row_min = ImGui::GetItemRectMin();
+    const ImVec2 row_max = ImGui::GetItemRectMax();
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     const float text_y = row_min.y + std::max(0.0F, (row_height - ImGui::GetTextLineHeight()) * 0.5F);
     const float text_x = row_min.x + 8.0F;
     draw_list->AddText(ImVec2(text_x, text_y), ImGui::GetColorU32(ImGuiCol_Text), theme.scheme.c_str());
 
-    const ImVec2 text_size = ImGui::CalcTextSize(theme.scheme.c_str());
-    float swatch_x = text_x + text_size.x + 12.0F;
+    const float swatch_strip_width =
+        (static_cast<float>(kThemePreviewColorIndices.size()) * kThemeSwatchSize) +
+        (static_cast<float>(kThemePreviewColorIndices.size() - 1) * kThemeSwatchGap);
+    float swatch_x = row_max.x - 8.0F - swatch_strip_width;
     const float swatch_y = row_min.y + std::max(0.0F, (row_height - kThemeSwatchSize) * 0.5F);
 
     for (const int color_index : kThemePreviewColorIndices) {
@@ -158,7 +161,6 @@ void SettingsWindow::draw(
     if (selected_section_ == kAppearanceSection) {
         ImGui::TextUnformatted("Appearance");
         ImGui::Separator();
-        ImGui::TextUnformatted("Click a theme to preview it. Save keeps it, Revert restores the saved preference.");
         ImGui::InputTextWithHint("##ThemeSearch", "Search themes", theme_search_, IM_ARRAYSIZE(theme_search_));
         ImGui::Spacing();
 
@@ -173,14 +175,16 @@ void SettingsWindow::draw(
 
                 ++visible_theme_count;
                 const bool selected = imgui_system.previewThemeId() == theme.id;
-                const std::string row_id = "##theme_" + theme.id;
-                if (ImGui::Selectable(row_id.c_str(), selected, ImGuiSelectableFlags_AllowOverlap, ImVec2(-1.0F, row_height))) {
+                const float row_width = std::max(ImGui::GetContentRegionAvail().x, 1.0F);
+                ImGui::PushID(theme.id.c_str());
+                if (ImGui::Selectable("##theme", selected, ImGuiSelectableFlags_None, ImVec2(row_width, row_height))) {
                     imgui_system.previewThemeById(theme.id);
                 }
                 drawThemeRow(theme, selected, row_height);
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                     ImGui::SetTooltip("%s\n%s", theme.scheme.c_str(), theme.author.c_str());
                 }
+                ImGui::PopID();
             }
 
             if (visible_theme_count == 0) {
