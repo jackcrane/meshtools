@@ -23,6 +23,69 @@ float measureMilliseconds(Func&& func) {
 
 }  // namespace
 
+std::vector<ViewportRenderer::HighlightVertex> ViewportRenderer::buildSelectedEdgeRibbonVertices(
+    const detail::CameraData& camera_data,
+    float aspect_ratio,
+    int viewport_width,
+    int viewport_height,
+    float stroke_width
+) const {
+    constexpr float kMinimumEdgeLength = 0.000001F;
+    const float clamped_stroke_width = std::clamp(stroke_width, 1.0F, 16.0F);
+
+    std::vector<HighlightVertex> vertices;
+    vertices.reserve(selected_edge_indices_.size() * 6ULL);
+
+    for (const std::uint32_t edge_index : selected_edge_indices_) {
+        if (edge_index >= unique_edges_.size()) {
+            continue;
+        }
+
+        const Edge& edge = unique_edges_[edge_index];
+        if (edge.a >= normalized_positions_.size() || edge.b >= normalized_positions_.size()) {
+            continue;
+        }
+
+        const mesh::Vec3& a = normalized_positions_[edge.a];
+        const mesh::Vec3& b = normalized_positions_[edge.b];
+        const mesh::Vec3 edge_direction = detail::subtract(b, a);
+        if (detail::length(edge_direction) <= kMinimumEdgeLength) {
+            continue;
+        }
+
+        mesh::Vec3 ribbon_offset_direction = detail::cross(camera_data.forward, edge_direction);
+        if (detail::length(ribbon_offset_direction) <= kMinimumEdgeLength) {
+            ribbon_offset_direction = detail::cross(camera_data.up, edge_direction);
+        }
+        if (detail::length(ribbon_offset_direction) <= kMinimumEdgeLength) {
+            ribbon_offset_direction = camera_data.right;
+        } else {
+            ribbon_offset_direction = detail::normalize(ribbon_offset_direction);
+        }
+
+        const mesh::Vec3 midpoint = detail::scale(detail::add(a, b), 0.5F);
+        const float midpoint_depth = detail::dot(detail::subtract(midpoint, camera_data.eye), camera_data.forward);
+        const float half_width =
+            detail::worldUnitsPerPixel(midpoint_depth, aspect_ratio, viewport_width, viewport_height) *
+            clamped_stroke_width * 0.5F;
+        const mesh::Vec3 offset = detail::scale(ribbon_offset_direction, half_width);
+
+        const mesh::Vec3 a_plus = detail::add(a, offset);
+        const mesh::Vec3 a_minus = detail::subtract(a, offset);
+        const mesh::Vec3 b_plus = detail::add(b, offset);
+        const mesh::Vec3 b_minus = detail::subtract(b, offset);
+
+        vertices.push_back(ViewportRenderer::HighlightVertex{{a_plus.x, a_plus.y, a_plus.z}});
+        vertices.push_back(ViewportRenderer::HighlightVertex{{b_plus.x, b_plus.y, b_plus.z}});
+        vertices.push_back(ViewportRenderer::HighlightVertex{{b_minus.x, b_minus.y, b_minus.z}});
+        vertices.push_back(ViewportRenderer::HighlightVertex{{a_plus.x, a_plus.y, a_plus.z}});
+        vertices.push_back(ViewportRenderer::HighlightVertex{{b_minus.x, b_minus.y, b_minus.z}});
+        vertices.push_back(ViewportRenderer::HighlightVertex{{a_minus.x, a_minus.y, a_minus.z}});
+    }
+
+    return vertices;
+}
+
 ViewportRenderer::ViewportRenderer() = default;
 
 ViewportRenderer::~ViewportRenderer() {
@@ -141,6 +204,27 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
         0.0F
     );
     const auto mvp = detail::multiply(projection, view);
+
+    if (!selected_edge_indices_.empty()) {
+        const std::vector<HighlightVertex> selected_edge_vertices = buildSelectedEdgeRibbonVertices(
+            camera_data,
+            aspect_ratio,
+            safe_width,
+            safe_height,
+            display_settings.selected_edge_stroke
+        );
+        glBindVertexArray(selected_edge_vertex_array_);
+        glBindBuffer(GL_ARRAY_BUFFER, selected_edge_vertex_buffer_);
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(selected_edge_vertices.size() * sizeof(HighlightVertex)),
+            selected_edge_vertices.empty() ? nullptr : selected_edge_vertices.data(),
+            GL_DYNAMIC_DRAW
+        );
+        selected_edge_vertex_count_ = static_cast<std::uint32_t>(selected_edge_vertices.size());
+    } else {
+        selected_edge_vertex_count_ = 0U;
+    }
 
     const int mvp_location = glGetUniformLocation(shader_program_, "u_mvp");
     const int camera_position_location = glGetUniformLocation(shader_program_, "u_camera_position");
@@ -331,8 +415,7 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
                 glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
                 glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias);
                 glUniform1i(highlight_round_points_location, 0);
-                glLineWidth(3.0F);
-                glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(selected_edge_vertex_count_));
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(selected_edge_vertex_count_));
             }
 
             if (selected_point_vertex_count_ > 0U) {

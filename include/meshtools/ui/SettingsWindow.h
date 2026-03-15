@@ -10,6 +10,7 @@ class SettingsWindow {
     void open();
     void draw(
         ViewportControlSettings& viewport_control_settings,
+        ViewportDisplaySettings& viewport_display_settings,
         GraphicsQualitySettings& graphics_quality_settings,
         FileImportSettings& default_file_import_settings,
         ImGuiSystem& imgui_system,

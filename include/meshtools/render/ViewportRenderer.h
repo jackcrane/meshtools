@@ -12,6 +12,10 @@
 
 namespace meshtools::render {
 
+namespace detail {
+struct CameraData;
+}
+
 class ViewportRenderer {
   public:
     struct Color {
@@ -68,6 +72,7 @@ class ViewportRenderer {
         bool show_wireframe = true;
         bool shade_triangles = true;
         bool show_points = false;
+        float selected_edge_stroke = 5.0F;
         UpAxis source_up_axis = UpAxis::Y;
         ThemeColors theme_colors{};
     };
@@ -208,6 +213,13 @@ class ViewportRenderer {
     void ensurePlaceholderMesh();
     void syncMesh(const mesh::MeshDocument* document, UpAxis up_axis);
     void uploadGeometry(const std::vector<Vertex>& vertices, const std::vector<std::uint32_t>& indices);
+    [[nodiscard]] std::vector<HighlightVertex> buildSelectedEdgeRibbonVertices(
+        const detail::CameraData& camera_data,
+        float aspect_ratio,
+        int viewport_width,
+        int viewport_height,
+        float stroke_width
+    ) const;
     void updateHighlightBuffers();
     void ensureExpandSelectionFaceAnalysis() const;
 

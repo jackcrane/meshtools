@@ -191,6 +191,7 @@ int EditorApplication::run() {
                 .show_wireframe = editor_ui_.viewportDisplaySettings().show_wireframe,
                 .shade_triangles = editor_ui_.viewportDisplaySettings().shade_triangles,
                 .show_points = editor_ui_.viewportDisplaySettings().show_points,
+                .selected_edge_stroke = editor_ui_.viewportDisplaySettings().selected_edge_stroke,
                 .source_up_axis =
                     !active_document_.has_value() || active_document_->up_axis == mesh::UpAxis::Y
                         ? render::ViewportRenderer::UpAxis::Y

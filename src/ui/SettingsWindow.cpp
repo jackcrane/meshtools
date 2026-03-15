@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdio>
 #include <random>
 #include <string>
 #include <string_view>
@@ -22,6 +23,12 @@ constexpr std::array<int, 11> kThemePreviewColorIndices = {
 };
 constexpr float kThemeSwatchSize = 10.0F;
 constexpr float kThemeSwatchGap = 2.0F;
+
+std::string formatFloat(float value) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof(buffer), "%.1f", value);
+    return buffer;
+}
 
 std::string lowercase(std::string_view value) {
     std::string lowered(value);
@@ -112,6 +119,7 @@ void SettingsWindow::open() {
 
 void SettingsWindow::draw(
     ViewportControlSettings& viewport_control_settings,
+    ViewportDisplaySettings& viewport_display_settings,
     GraphicsQualitySettings& graphics_quality_settings,
     FileImportSettings& default_file_import_settings,
     ImGuiSystem& imgui_system,
@@ -248,6 +256,14 @@ void SettingsWindow::draw(
                     .message = std::string("Pan modifier set to ") + panModifierName(viewport_control_settings.pan_modifier) + ".",
                 });
             }
+        }
+        if (ImGui::SliderFloat("Selected edge stroke", &viewport_display_settings.selected_edge_stroke, 1.0F, 16.0F, "%.1f")) {
+            viewport_display_settings.selected_edge_stroke =
+                std::clamp(viewport_display_settings.selected_edge_stroke, 1.0F, 16.0F);
+            appendSettingsLog(
+                actions,
+                "Selected edge stroke set to " + formatFloat(viewport_display_settings.selected_edge_stroke) + "."
+            );
         }
 
         ImGui::Spacing();

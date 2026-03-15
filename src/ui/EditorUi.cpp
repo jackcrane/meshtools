@@ -113,6 +113,7 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
     );
     settings_window_.draw(
         viewport_control_settings_,
+        viewport_display_settings_,
         graphics_quality_settings_,
         file_import_settings_,
         imgui_system_,

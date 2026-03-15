@@ -145,6 +145,7 @@ struct ViewportDisplaySettings {
     bool show_wireframe = true;
     bool shade_triangles = true;
     bool show_points = false;
+    float selected_edge_stroke = 5.0F;
 };
 
 struct ViewportCameraInput {
