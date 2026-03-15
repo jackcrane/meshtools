@@ -8,6 +8,9 @@
 #include <thread>
 #include <vector>
 
+#include "meshtools/app/DocumentHistoryController.h"
+#include "meshtools/app/EditorDocumentState.h"
+#include "meshtools/app/EditorLogger.h"
 #include "meshtools/mesh/MeshDocument.h"
 #include "meshtools/mesh/MeshOperations/Detail.h"
 #include "meshtools/platform/GlfwWindow.h"
@@ -27,32 +30,6 @@ class EditorApplication {
     explicit EditorApplication(AppConfig config = {});
 
     int run();
-
-    struct EditableDocumentState {
-        mesh::UpAxis up_axis = mesh::UpAxis::Y;
-        std::uint64_t mesh_revision = 0;
-        std::vector<mesh::Vec3> positions;
-        std::vector<mesh::Vec3> normals;
-        std::vector<mesh::Triangle> triangles;
-        std::vector<mesh::EdgeSegment> explicit_edges;
-        mesh::Bounds bounds;
-        std::vector<mesh::EntitySet> entity_sets;
-    };
-
-    struct DocumentHistorySnapshot {
-        EditableDocumentState document_state;
-        mesh::EntitySelection selection;
-        std::optional<std::size_t> selected_entity_set_index;
-    };
-
-    struct DocumentHistoryNode {
-        std::size_t node_id = 0;
-        std::optional<std::size_t> parent_index;
-        std::vector<std::size_t> child_indices;
-        std::optional<std::size_t> preferred_child_index;
-        std::string label;
-        DocumentHistorySnapshot snapshot;
-    };
 
     struct ModifyAvailabilityCache {
         bool valid = false;
@@ -102,7 +79,7 @@ class EditorApplication {
     void beginModifyDeleteOperation(const mesh::ModifyDeleteOptions& options);
     void startPendingMeshOperation();
     void pollPendingMeshOperation();
-    void beginHistoryRestoreOperation(std::size_t node_index, std::string action);
+    void beginHistoryRestoreOperation(DocumentHistoryRestoreTarget target, std::string action);
     void startPendingHistoryRestore();
     void pollPendingHistoryRestore();
     void beginDocumentTopologyPrecompute(std::string title, std::string message);
@@ -136,14 +113,6 @@ class EditorApplication {
     void undoDocumentHistory();
     void redoDocumentHistory();
     void jumpToDocumentHistoryNode(std::size_t node_id);
-    void restoreDocumentHistoryNode(std::size_t node_index, std::string action);
-    void rebuildDocumentHistoryUiState();
-    void setPreferredHistoryPathToNode(std::size_t node_index);
-    [[nodiscard]] DocumentHistorySnapshot captureDocumentHistorySnapshot(
-        const mesh::EntitySelection& selection,
-        std::optional<std::size_t> selected_entity_set_index
-    ) const;
-    [[nodiscard]] std::optional<std::size_t> historyNodeIndexById(std::size_t node_id) const;
     [[nodiscard]] std::string makeDefaultEntitySetName() const;
 
     struct DocumentLoadOutcome {
@@ -210,12 +179,8 @@ class EditorApplication {
 
     struct HistoryRestoreOutcome {
         bool valid = false;
-        EditableDocumentState document_state;
-        mesh::EntitySelection selection;
-        std::optional<std::size_t> selected_entity_set_index;
-        std::size_t node_index = 0;
+        DocumentHistoryRestoreTarget target;
         std::string action;
-        std::string node_label;
     };
 
     struct AsyncHistoryRestoreState {
@@ -225,9 +190,8 @@ class EditorApplication {
     };
 
     struct PendingHistoryRestore {
-        std::size_t node_index = 0;
+        DocumentHistoryRestoreTarget target;
         std::string action;
-        std::string node_label;
         std::string title;
         std::string message;
         bool started = false;
@@ -256,7 +220,7 @@ class EditorApplication {
     std::optional<mesh::MeshDocument> active_document_;
     std::filesystem::path active_project_path_;
     std::optional<std::size_t> selected_entity_set_index_;
-    std::vector<std::string> log_messages_;
+    EditorLogger logger_;
     std::vector<std::string> expand_selection_feedback_reasons_;
     std::vector<std::string> select_similar_feedback_reasons_;
     std::vector<ui::EditorUiState::TimedTask> frame_performance_tasks_;
@@ -270,13 +234,8 @@ class EditorApplication {
     std::optional<PendingMeshOperation> pending_mesh_operation_;
     std::optional<PendingHistoryRestore> pending_history_restore_;
     std::optional<PendingDocumentTopologyPrecompute> pending_document_topology_precompute_;
-    std::vector<DocumentHistoryNode> document_history_;
-    std::optional<std::size_t> current_history_index_;
-    std::size_t next_history_node_id_ = 1;
+    DocumentHistoryController history_controller_;
     std::uint64_t next_mesh_revision_id_ = 1;
-    std::vector<ui::EditorUiState::HistoryEntry> history_entries_;
-    std::vector<ui::EditorUiState::HistoryBranchEntry> active_history_branch_;
-    std::size_t active_history_branch_position_ = 0;
 };
 
 }  // namespace meshtools::app
