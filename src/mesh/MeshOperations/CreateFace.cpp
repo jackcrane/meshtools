@@ -10,9 +10,16 @@ ModifyCreateFaceAvailability computeModifyCreateFaceAvailability(
     const MeshDocument& document,
     const EntitySelection& selection
 ) {
-    ModifyCreateFaceAvailability availability;
     const operations::detail::MeshTopology topology = operations::detail::buildMeshTopology(document);
+    return computeModifyCreateFaceAvailability(document, topology, selection);
+}
 
+ModifyCreateFaceAvailability computeModifyCreateFaceAvailability(
+    const MeshDocument& document,
+    const operations::detail::MeshTopology& topology,
+    const EntitySelection& selection
+) {
+    ModifyCreateFaceAvailability availability;
     for (const std::uint32_t point_index : selection.point_indices) {
         if (point_index < document.positions.size()) {
             ++availability.point_count;

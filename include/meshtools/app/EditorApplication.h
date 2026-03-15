@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "meshtools/mesh/MeshDocument.h"
+#include "meshtools/mesh/MeshOperations/Detail.h"
 #include "meshtools/platform/GlfwWindow.h"
 #include "meshtools/render/ViewportRenderer.h"
 #include "meshtools/ui/EditorUi.h"
@@ -66,10 +67,25 @@ class EditorApplication {
         mesh::ModifyProjectAvailability modify_project_availability;
     };
 
+    struct DocumentTopologyCache {
+        bool valid = false;
+        std::filesystem::path source_path;
+        std::uint64_t mesh_revision = 0;
+        std::size_t vertex_count = 0;
+        std::size_t triangle_count = 0;
+        std::size_t explicit_edge_count = 0;
+        mesh::operations::detail::MeshTopology topology;
+    };
+
   private:
     struct DocumentLoadOutcome;
     struct AsyncDocumentLoadState;
     struct PendingDocumentLoad;
+    struct MeshOperationOutcome;
+    struct AsyncMeshOperationState;
+    struct PendingMeshOperation;
+    struct AsyncDocumentTopologyPrecomputeState;
+    struct PendingDocumentTopologyPrecompute;
 
     void appendLog(std::string origin, std::string message);
     void openDocument();
@@ -78,6 +94,14 @@ class EditorApplication {
     void saveProjectAs();
     void beginDocumentLoad(const std::filesystem::path& path);
     void pollPendingDocumentLoad();
+    void beginModifyCreateFaceOperation();
+    void beginModifyProjectOperation(const mesh::ModifyProjectOptions& options);
+    void beginModifyDeleteOperation(const mesh::ModifyDeleteOptions& options);
+    void startPendingMeshOperation();
+    void pollPendingMeshOperation();
+    void beginDocumentTopologyPrecompute(std::string title, std::string message);
+    void startPendingDocumentTopologyPrecompute();
+    void pollPendingDocumentTopologyPrecompute();
     void applyLoadedMeshDocument(DocumentLoadOutcome outcome);
     void applyLoadedProjectDocument(const std::filesystem::path& path, DocumentLoadOutcome outcome);
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
@@ -141,6 +165,57 @@ class EditorApplication {
         std::jthread worker;
     };
 
+    struct MeshOperationOutcome {
+        bool changed = false;
+        EditableDocumentState document_state;
+        mesh::EntitySelection selection_after;
+        std::optional<std::size_t> selected_entity_set_index;
+        std::string skipped_log_message;
+        std::string success_log_message;
+        std::string history_label;
+        std::string cache_title;
+        std::string cache_message;
+    };
+
+    struct AsyncMeshOperationState {
+        std::mutex mutex;
+        bool completed = false;
+        MeshOperationOutcome outcome;
+    };
+
+    struct PendingMeshOperation {
+        enum class Kind {
+            CreateFace,
+            Project,
+            Delete,
+        };
+
+        Kind kind = Kind::Delete;
+        std::string title;
+        std::string message;
+        bool started = false;
+        mesh::MeshDocument document_snapshot;
+        mesh::EntitySelection selection;
+        mesh::ModifyProjectOptions project_options;
+        mesh::ModifyDeleteOptions delete_options;
+        std::shared_ptr<AsyncMeshOperationState> state;
+        std::jthread worker;
+    };
+
+    struct AsyncDocumentTopologyPrecomputeState {
+        std::mutex mutex;
+        bool completed = false;
+        DocumentTopologyCache cache;
+    };
+
+    struct PendingDocumentTopologyPrecompute {
+        std::string title;
+        std::string message;
+        bool started = false;
+        std::shared_ptr<AsyncDocumentTopologyPrecomputeState> state;
+        std::jthread worker;
+    };
+
     AppConfig config_;
     platform::GlfwWindow window_;
     render::ViewportRenderer viewport_renderer_;
@@ -155,9 +230,12 @@ class EditorApplication {
     ui::EditorUiState::ExpandSelectionFeedback expand_selection_feedback_{};
     ui::EditorUiState::SelectSimilarFeedback select_similar_feedback_{};
     ModifyAvailabilityCache modify_availability_cache_{};
+    DocumentTopologyCache document_topology_cache_{};
     ui::ViewportCameraInput pending_viewport_camera_input_;
     std::optional<mesh::EntitySelection> pending_renderer_selection_;
     std::optional<PendingDocumentLoad> pending_document_load_;
+    std::optional<PendingMeshOperation> pending_mesh_operation_;
+    std::optional<PendingDocumentTopologyPrecompute> pending_document_topology_precompute_;
     std::vector<DocumentHistoryNode> document_history_;
     std::optional<std::size_t> current_history_index_;
     std::size_t next_history_node_id_ = 1;

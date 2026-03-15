@@ -7,9 +7,16 @@
 namespace meshtools::mesh {
 
 ModifyDeleteAvailability computeModifyDeleteAvailability(const MeshDocument& document, const EntitySelection& selection) {
-    ModifyDeleteAvailability availability;
     const operations::detail::MeshTopology topology = operations::detail::buildMeshTopology(document);
+    return computeModifyDeleteAvailability(document, topology, selection);
+}
 
+ModifyDeleteAvailability computeModifyDeleteAvailability(
+    const MeshDocument& document,
+    const operations::detail::MeshTopology& topology,
+    const EntitySelection& selection
+) {
+    ModifyDeleteAvailability availability;
     for (const std::uint32_t face_index : selection.face_indices) {
         if (face_index < document.triangles.size()) {
             ++availability.face_count;

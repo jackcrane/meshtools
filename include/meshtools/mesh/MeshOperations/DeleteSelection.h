@@ -6,6 +6,10 @@
 
 namespace meshtools::mesh {
 
+namespace operations::detail {
+struct MeshTopology;
+}
+
 struct ModifyDeleteAvailability {
     std::size_t face_count = 0;
     std::size_t inside_edge_count = 0;
@@ -38,6 +42,11 @@ struct ModifyDeleteResult {
 
 [[nodiscard]] ModifyDeleteAvailability computeModifyDeleteAvailability(
     const MeshDocument& document,
+    const EntitySelection& selection
+);
+[[nodiscard]] ModifyDeleteAvailability computeModifyDeleteAvailability(
+    const MeshDocument& document,
+    const operations::detail::MeshTopology& topology,
     const EntitySelection& selection
 );
 [[nodiscard]] ModifyDeleteResult applyModifyDelete(

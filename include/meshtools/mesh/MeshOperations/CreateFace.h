@@ -8,6 +8,10 @@
 
 namespace meshtools::mesh {
 
+namespace operations::detail {
+struct MeshTopology;
+}
+
 struct ModifyCreateFaceAvailability {
     std::size_t point_count = 0;
     std::size_t edge_count = 0;
@@ -26,6 +30,11 @@ struct ModifyCreateFaceResult {
 
 [[nodiscard]] ModifyCreateFaceAvailability computeModifyCreateFaceAvailability(
     const MeshDocument& document,
+    const EntitySelection& selection
+);
+[[nodiscard]] ModifyCreateFaceAvailability computeModifyCreateFaceAvailability(
+    const MeshDocument& document,
+    const operations::detail::MeshTopology& topology,
     const EntitySelection& selection
 );
 [[nodiscard]] ModifyCreateFaceResult applyModifyCreateFace(

@@ -114,6 +114,18 @@ bool modifyAvailabilityCacheMatches(
            selectionsEqual(cache.selection, selection);
 }
 
+bool documentTopologyCacheMatches(
+    const EditorApplication::DocumentTopologyCache& cache,
+    const mesh::MeshDocument& document
+) {
+    return cache.valid &&
+           cache.source_path == document.source_path &&
+           cache.mesh_revision == document.mesh_revision &&
+           cache.vertex_count == document.positions.size() &&
+           cache.triangle_count == document.triangles.size() &&
+           cache.explicit_edge_count == document.explicit_edges.size();
+}
+
 EditorApplication::EditableDocumentState makeEditableDocumentState(const mesh::MeshDocument& document) {
     return EditorApplication::EditableDocumentState{
         .up_axis = document.up_axis,
@@ -187,6 +199,8 @@ int EditorApplication::run() {
     while (!window_.shouldClose()) {
         window_.pollEvents();
         pollPendingDocumentLoad();
+        pollPendingMeshOperation();
+        pollPendingDocumentTopologyPrecompute();
 
         const platform::NativeMenuActions menu_actions = platform::consumePendingNativeMenuActions();
         if (menu_actions.open_document) {
@@ -241,18 +255,25 @@ int EditorApplication::run() {
         float modify_create_face_availability_ms = 0.0F;
         float modify_project_availability_ms = 0.0F;
         if (active_document_) {
+            const bool topology_cache_ready = documentTopologyCacheMatches(document_topology_cache_, active_document_.value());
             if (modifyAvailabilityCacheMatches(modify_availability_cache_, active_document_.value(), current_selection)) {
                 modify_delete_availability = modify_availability_cache_.modify_delete_availability;
                 modify_create_face_availability = modify_availability_cache_.modify_create_face_availability;
                 modify_project_availability = modify_availability_cache_.modify_project_availability;
-            } else {
+            } else if (topology_cache_ready) {
                 modify_delete_availability_ms = measureMilliseconds([&]() {
-                    modify_delete_availability =
-                        mesh::computeModifyDeleteAvailability(active_document_.value(), current_selection);
+                    modify_delete_availability = mesh::computeModifyDeleteAvailability(
+                        active_document_.value(),
+                        document_topology_cache_.topology,
+                        current_selection
+                    );
                 });
                 modify_create_face_availability_ms = measureMilliseconds([&]() {
-                    modify_create_face_availability =
-                        mesh::computeModifyCreateFaceAvailability(active_document_.value(), current_selection);
+                    modify_create_face_availability = mesh::computeModifyCreateFaceAvailability(
+                        active_document_.value(),
+                        document_topology_cache_.topology,
+                        current_selection
+                    );
                 });
                 modify_project_availability_ms = measureMilliseconds([&]() {
                     modify_project_availability =
@@ -270,9 +291,12 @@ int EditorApplication::run() {
                     .modify_create_face_availability = modify_create_face_availability,
                     .modify_project_availability = modify_project_availability,
                 };
+            } else {
+                modify_availability_cache_ = ModifyAvailabilityCache{};
             }
         } else {
             modify_availability_cache_ = ModifyAvailabilityCache{};
+            document_topology_cache_ = DocumentTopologyCache{};
         }
 
         const ImVec4& clear_color = editor_ui_.clearColor();
@@ -368,17 +392,31 @@ int EditorApplication::run() {
                 .unavailable_reasons = select_similar_feedback_reasons_,
             },
             .file_load_dialog = ui::EditorUiState::FileLoadDialog{
-                .visible = pending_document_load_.has_value() && pending_document_load_->show_dialog,
-                .show_progress_bar = pending_document_load_.has_value() && pending_document_load_->show_dialog,
+                .visible =
+                    pending_document_load_.has_value() ||
+                    pending_mesh_operation_.has_value() ||
+                    pending_document_topology_precompute_.has_value(),
+                .show_progress_bar =
+                    pending_document_load_.has_value() ||
+                    pending_mesh_operation_.has_value() ||
+                    pending_document_topology_precompute_.has_value(),
                 .title =
                     pending_document_load_.has_value()
                         ? pending_document_load_->kind == PendingDocumentLoad::Kind::Project
                               ? "Opening project"
                               : "Importing mesh"
-                        : "",
+                        : pending_mesh_operation_.has_value()
+                            ? pending_mesh_operation_->title
+                        : pending_document_topology_precompute_.has_value()
+                            ? pending_document_topology_precompute_->title
+                            : "",
                 .message =
                     pending_document_load_.has_value()
                         ? "Loading " + pending_document_load_->path.filename().string() + '.'
+                        : pending_mesh_operation_.has_value()
+                            ? pending_mesh_operation_->message
+                        : pending_document_topology_precompute_.has_value()
+                            ? pending_document_topology_precompute_->message
                         : "",
             },
         };
@@ -413,6 +451,20 @@ int EditorApplication::run() {
             }
         );
         frame_performance_tasks_ = std::move(current_frame_performance_tasks);
+
+        if (pending_document_load_.has_value() || pending_mesh_operation_.has_value() || pending_document_topology_precompute_.has_value()) {
+            if (pending_mesh_operation_.has_value() && !pending_mesh_operation_->started) {
+                startPendingMeshOperation();
+            }
+            if (pending_document_topology_precompute_.has_value() && !pending_document_topology_precompute_->started) {
+                startPendingDocumentTopologyPrecompute();
+            }
+            pending_viewport_camera_input_ = ui::ViewportCameraInput{};
+            if (actions.request_exit) {
+                window_.requestClose();
+            }
+            continue;
+        }
 
         pending_viewport_camera_input_ = actions.viewport_camera;
         for (const ui::EditorUiLogEvent& event_log : actions.event_logs) {
@@ -471,7 +523,9 @@ void EditorApplication::appendLog(std::string origin, std::string message) {
 }
 
 void EditorApplication::openDocument() {
-    if (pending_document_load_.has_value()) {
+    if (pending_document_load_.has_value() ||
+        pending_mesh_operation_.has_value() ||
+        pending_document_topology_precompute_.has_value()) {
         appendLog("PROJECT", "Open skipped because another file is still loading.");
         return;
     }
@@ -486,7 +540,9 @@ void EditorApplication::openDocument() {
 }
 
 void EditorApplication::openPath(const std::filesystem::path& path) {
-    if (pending_document_load_.has_value()) {
+    if (pending_document_load_.has_value() ||
+        pending_mesh_operation_.has_value() ||
+        pending_document_topology_precompute_.has_value()) {
         appendLog("PROJECT", "Open skipped because another file is still loading.");
         return;
     }
@@ -495,6 +551,13 @@ void EditorApplication::openPath(const std::filesystem::path& path) {
 }
 
 void EditorApplication::saveProject() {
+    if (pending_document_load_.has_value() ||
+        pending_mesh_operation_.has_value() ||
+        pending_document_topology_precompute_.has_value()) {
+        appendLog("PROJECT", "Save skipped because the document is busy.");
+        return;
+    }
+
     if (!active_document_.has_value()) {
         appendLog("PROJECT", "Save skipped because there is no active project.");
         return;
@@ -523,6 +586,13 @@ void EditorApplication::saveProject() {
 }
 
 void EditorApplication::saveProjectAs() {
+    if (pending_document_load_.has_value() ||
+        pending_mesh_operation_.has_value() ||
+        pending_document_topology_precompute_.has_value()) {
+        appendLog("PROJECT", "Save skipped because the document is busy.");
+        return;
+    }
+
     if (!active_document_.has_value()) {
         appendLog("PROJECT", "Save skipped because there is no active project.");
         return;
@@ -612,6 +682,281 @@ void EditorApplication::pollPendingDocumentLoad() {
     applyLoadedMeshDocument(std::move(*outcome));
 }
 
+void EditorApplication::beginModifyCreateFaceOperation() {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    pending_mesh_operation_ = PendingMeshOperation{
+        .kind = PendingMeshOperation::Kind::CreateFace,
+        .title = "Creating faces",
+        .message = "Applying face creation to " + active_document_->displayName() + '.',
+        .started = false,
+        .document_snapshot = active_document_.value(),
+        .selection = viewport_renderer_.currentSelection(),
+        .state = std::make_shared<AsyncMeshOperationState>(),
+    };
+}
+
+void EditorApplication::beginModifyProjectOperation(const mesh::ModifyProjectOptions& options) {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    pending_mesh_operation_ = PendingMeshOperation{
+        .kind = PendingMeshOperation::Kind::Project,
+        .title = "Projecting edge",
+        .message = "Applying projected edge changes to " + active_document_->displayName() + '.',
+        .started = false,
+        .document_snapshot = active_document_.value(),
+        .selection = viewport_renderer_.currentSelection(),
+        .project_options = options,
+        .state = std::make_shared<AsyncMeshOperationState>(),
+    };
+}
+
+void EditorApplication::beginModifyDeleteOperation(const mesh::ModifyDeleteOptions& options) {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    pending_mesh_operation_ = PendingMeshOperation{
+        .kind = PendingMeshOperation::Kind::Delete,
+        .title = "Deleting geometry",
+        .message = "Applying delete operation to " + active_document_->displayName() + '.',
+        .started = false,
+        .document_snapshot = active_document_.value(),
+        .selection = viewport_renderer_.currentSelection(),
+        .delete_options = options,
+        .state = std::make_shared<AsyncMeshOperationState>(),
+    };
+}
+
+void EditorApplication::startPendingMeshOperation() {
+    if (!pending_mesh_operation_.has_value() ||
+        pending_mesh_operation_->started) {
+        return;
+    }
+
+    pending_mesh_operation_->started = true;
+    const PendingMeshOperation::Kind kind = pending_mesh_operation_->kind;
+    const std::shared_ptr<AsyncMeshOperationState> state = pending_mesh_operation_->state;
+    mesh::MeshDocument document_snapshot = std::move(pending_mesh_operation_->document_snapshot);
+    mesh::EntitySelection selection = pending_mesh_operation_->selection;
+    const mesh::ModifyProjectOptions project_options = pending_mesh_operation_->project_options;
+    const mesh::ModifyDeleteOptions delete_options = pending_mesh_operation_->delete_options;
+    pending_mesh_operation_->worker = std::jthread(
+        [state, kind, document_snapshot = std::move(document_snapshot), selection = std::move(selection), project_options, delete_options]() mutable {
+            MeshOperationOutcome outcome;
+
+            switch (kind) {
+                case PendingMeshOperation::Kind::CreateFace: {
+                    const mesh::ModifyCreateFaceResult result =
+                        mesh::applyModifyCreateFace(&document_snapshot, selection);
+                    if (!result.changed) {
+                        outcome.skipped_log_message =
+                            "Create face skipped because the selection could not form a face.";
+                        break;
+                    }
+
+                    outcome.changed = true;
+                    outcome.document_state = makeEditableDocumentState(document_snapshot);
+                    outcome.selection_after = mesh::EntitySelection{
+                        .edge_indices = {},
+                        .face_indices = result.created_face_indices,
+                        .point_indices = {},
+                    };
+                    outcome.history_label = "Created " + std::to_string(result.created_face_count) + " faces";
+                    outcome.success_log_message = "Created " + std::to_string(result.created_face_count) + " faces.";
+                    outcome.cache_title = "Updating mesh caches";
+                    outcome.cache_message = "Recomputing topology caches after face creation.";
+                    break;
+                }
+                case PendingMeshOperation::Kind::Project: {
+                    const mesh::ModifyProjectResult result =
+                        mesh::applyModifyProject(&document_snapshot, project_options);
+                    if (!result.changed) {
+                        outcome.skipped_log_message =
+                            "Project skipped because the requested line could not be created.";
+                        break;
+                    }
+
+                    outcome.changed = true;
+                    outcome.document_state = makeEditableDocumentState(document_snapshot);
+                    outcome.selection_after = mesh::EntitySelection{
+                        .edge_indices =
+                            result.created_edge_index.has_value()
+                                ? std::vector<std::uint32_t>{*result.created_edge_index}
+                                : std::vector<std::uint32_t>{},
+                        .face_indices = {},
+                        .point_indices = {},
+                    };
+                    outcome.history_label = "Projected edge";
+                    outcome.success_log_message = "Projected 2 faces and created 1 edge.";
+                    outcome.cache_title = "Updating mesh caches";
+                    outcome.cache_message = "Recomputing topology caches after projected edge creation.";
+                    break;
+                }
+                case PendingMeshOperation::Kind::Delete: {
+                    const mesh::ModifyDeleteResult result =
+                        mesh::applyModifyDelete(&document_snapshot, selection, delete_options);
+                    if (!result.changed) {
+                        outcome.skipped_log_message =
+                            "Delete skipped because nothing applicable was selected.";
+                        break;
+                    }
+
+                    outcome.changed = true;
+                    outcome.document_state = makeEditableDocumentState(document_snapshot);
+                    outcome.selection_after = mesh::EntitySelection{};
+                    outcome.history_label = "Deleted geometry";
+                    outcome.success_log_message =
+                        "Deleted " + std::to_string(result.deleted_face_count) + " faces and " +
+                        std::to_string(result.deleted_edge_count) + " edges and " +
+                        std::to_string(result.deleted_point_count) + " points.";
+                    outcome.cache_title = "Updating mesh caches";
+                    outcome.cache_message = "Recomputing topology caches after deleting geometry.";
+                    break;
+                }
+            }
+
+            const std::scoped_lock lock(state->mutex);
+            state->outcome = std::move(outcome);
+            state->completed = true;
+        }
+    );
+}
+
+void EditorApplication::pollPendingMeshOperation() {
+    if (!pending_mesh_operation_.has_value() || !pending_mesh_operation_->started) {
+        return;
+    }
+
+    std::optional<MeshOperationOutcome> outcome;
+    {
+        const std::scoped_lock lock(pending_mesh_operation_->state->mutex);
+        if (!pending_mesh_operation_->state->completed) {
+            return;
+        }
+
+        outcome = std::move(pending_mesh_operation_->state->outcome);
+    }
+
+    pending_mesh_operation_.reset();
+    if (!outcome.has_value()) {
+        return;
+    }
+
+    if (!outcome->changed) {
+        if (!outcome->skipped_log_message.empty()) {
+            appendLog("MODIFY", outcome->skipped_log_message);
+        }
+        return;
+    }
+
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    applyEditableDocumentState(&active_document_.value(), outcome->document_state);
+    viewport_renderer_.clearSelection();
+    viewport_renderer_.clearExpandSelectionPreview();
+    viewport_renderer_.clearSelectSimilarPreview();
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
+    select_similar_feedback_reasons_.clear();
+    select_similar_feedback_ = {};
+    selected_entity_set_index_ = outcome->selected_entity_set_index;
+    if (outcome->selection_after.empty()) {
+        pending_renderer_selection_.reset();
+    } else {
+        pending_renderer_selection_ = outcome->selection_after;
+    }
+    bumpMeshRevision();
+    beginDocumentTopologyPrecompute(outcome->cache_title, outcome->cache_message);
+    commitDocumentHistory(
+        outcome->history_label,
+        outcome->selection_after,
+        outcome->selected_entity_set_index
+    );
+    appendLog("MODIFY", outcome->success_log_message);
+}
+
+void EditorApplication::beginDocumentTopologyPrecompute(std::string title, std::string message) {
+    if (!active_document_.has_value()) {
+        return;
+    }
+
+    document_topology_cache_ = DocumentTopologyCache{};
+    modify_availability_cache_ = ModifyAvailabilityCache{};
+
+    PendingDocumentTopologyPrecompute pending_precompute;
+    pending_precompute.title = std::move(title);
+    pending_precompute.message = std::move(message);
+    pending_precompute.state = std::make_shared<AsyncDocumentTopologyPrecomputeState>();
+    pending_document_topology_precompute_ = std::move(pending_precompute);
+}
+
+void EditorApplication::startPendingDocumentTopologyPrecompute() {
+    if (!pending_document_topology_precompute_.has_value() ||
+        pending_document_topology_precompute_->started ||
+        !active_document_.has_value()) {
+        return;
+    }
+
+    pending_document_topology_precompute_->started = true;
+    mesh::MeshDocument document_snapshot = active_document_.value();
+    const std::shared_ptr<AsyncDocumentTopologyPrecomputeState> state = pending_document_topology_precompute_->state;
+    pending_document_topology_precompute_->worker =
+        std::jthread([state, document_snapshot = std::move(document_snapshot)]() mutable {
+            DocumentTopologyCache cache;
+            cache.valid = true;
+            cache.source_path = document_snapshot.source_path;
+            cache.mesh_revision = document_snapshot.mesh_revision;
+            cache.vertex_count = document_snapshot.positions.size();
+            cache.triangle_count = document_snapshot.triangles.size();
+            cache.explicit_edge_count = document_snapshot.explicit_edges.size();
+            cache.topology = mesh::operations::detail::buildMeshTopology(document_snapshot);
+
+            const std::scoped_lock lock(state->mutex);
+            state->cache = std::move(cache);
+            state->completed = true;
+        });
+}
+
+void EditorApplication::pollPendingDocumentTopologyPrecompute() {
+    if (!pending_document_topology_precompute_.has_value()) {
+        return;
+    }
+
+    std::optional<DocumentTopologyCache> cache;
+    {
+        const std::scoped_lock lock(pending_document_topology_precompute_->state->mutex);
+        if (!pending_document_topology_precompute_->state->completed) {
+            return;
+        }
+
+        cache = std::move(pending_document_topology_precompute_->state->cache);
+    }
+
+    pending_document_topology_precompute_.reset();
+    if (!active_document_.has_value() || !cache.has_value()) {
+        return;
+    }
+
+    if (!documentTopologyCacheMatches(*cache, active_document_.value())) {
+        return;
+    }
+
+    document_topology_cache_ = std::move(*cache);
+    modify_availability_cache_ = ModifyAvailabilityCache{};
+    appendLog(
+        "PROJECT",
+        "Prepared topology cache for " + active_document_->displayName() +
+            " (" + std::to_string(active_document_->triangles.size()) + " triangles)."
+    );
+}
+
 void EditorApplication::applyLoadedMeshDocument(DocumentLoadOutcome outcome) {
     if (!outcome.document.has_value()) {
         appendLog("IMPORT", "Failed to load mesh: " + outcome.error_message);
@@ -639,6 +984,10 @@ void EditorApplication::applyLoadedMeshDocument(DocumentLoadOutcome outcome) {
         " (" + active_document_->formatLabel() + ", " +
         std::to_string(active_document_->positions.size()) + " vertices, " +
         std::to_string(active_document_->triangles.size()) + " triangles)."
+    );
+    beginDocumentTopologyPrecompute(
+        "Preparing mesh caches",
+        "Precomputing topology caches for " + active_document_->displayName() + '.'
     );
 }
 
@@ -668,6 +1017,10 @@ void EditorApplication::applyLoadedProjectDocument(const std::filesystem::path& 
         " (" + active_document_->formatLabel() + ", " +
         std::to_string(active_document_->positions.size()) + " vertices, " +
         std::to_string(active_document_->triangles.size()) + " triangles)."
+    );
+    beginDocumentTopologyPrecompute(
+        "Preparing mesh caches",
+        "Precomputing topology caches for " + active_document_->displayName() + '.'
     );
 }
 
@@ -796,30 +1149,7 @@ void EditorApplication::handleModifyCreateFaceRequest(const ui::EditorUiActions&
         return;
     }
 
-    const mesh::ModifyCreateFaceResult result =
-        mesh::applyModifyCreateFace(&active_document_.value(), viewport_renderer_.currentSelection());
-    if (!result.changed) {
-        appendLog("MODIFY", "Create face skipped because the selection could not form a face.");
-        return;
-    }
-
-    viewport_renderer_.clearSelection();
-    viewport_renderer_.clearExpandSelectionPreview();
-    expand_selection_feedback_reasons_.clear();
-    expand_selection_feedback_ = {};
-    selected_entity_set_index_.reset();
-    pending_renderer_selection_ = mesh::EntitySelection{
-        .edge_indices = {},
-        .face_indices = result.created_face_indices,
-        .point_indices = {},
-    };
-    bumpMeshRevision();
-    commitDocumentHistory(
-        "Created " + std::to_string(result.created_face_count) + " faces",
-        *pending_renderer_selection_,
-        std::nullopt
-    );
-    appendLog("MODIFY", "Created " + std::to_string(result.created_face_count) + " faces.");
+    beginModifyCreateFaceOperation();
 }
 
 void EditorApplication::handleModifyProjectRequest(const ui::EditorUiActions& actions) {
@@ -839,31 +1169,7 @@ void EditorApplication::handleModifyProjectRequest(const ui::EditorUiActions& ac
         .start_target = actions.request_modify_project->start_target,
         .end_target = actions.request_modify_project->end_target,
     };
-    const mesh::ModifyProjectResult result =
-        mesh::applyModifyProject(&active_document_.value(), options);
-    if (!result.changed) {
-        appendLog("MODIFY", "Project skipped because the requested line could not be created.");
-        return;
-    }
-
-    viewport_renderer_.clearSelection();
-    viewport_renderer_.clearExpandSelectionPreview();
-    expand_selection_feedback_reasons_.clear();
-    expand_selection_feedback_ = {};
-    selected_entity_set_index_.reset();
-    pending_renderer_selection_ = mesh::EntitySelection{
-        .edge_indices = result.created_edge_index.has_value()
-            ? std::vector<std::uint32_t>{*result.created_edge_index}
-            : std::vector<std::uint32_t>{},
-        .face_indices = {},
-        .point_indices = {},
-    };
-    bumpMeshRevision();
-    commitDocumentHistory("Projected edge", *pending_renderer_selection_, std::nullopt);
-    appendLog(
-        "MODIFY",
-        "Projected 2 faces and created 1 edge."
-    );
+    beginModifyProjectOperation(options);
 }
 
 void EditorApplication::handleModifyDeleteRequest(const ui::EditorUiActions& actions) {
@@ -877,31 +1183,7 @@ void EditorApplication::handleModifyDeleteRequest(const ui::EditorUiActions& act
         .outside_edges = actions.request_modify_delete->outside_edges,
         .points = actions.request_modify_delete->points,
     };
-    const mesh::ModifyDeleteResult result =
-        mesh::applyModifyDelete(&active_document_.value(), viewport_renderer_.currentSelection(), options);
-    if (!result.changed) {
-        appendLog("MODIFY", "Delete skipped because nothing applicable was selected.");
-        return;
-    }
-
-    viewport_renderer_.clearSelection();
-    viewport_renderer_.clearExpandSelectionPreview();
-    expand_selection_feedback_reasons_.clear();
-    expand_selection_feedback_ = {};
-    selected_entity_set_index_.reset();
-    pending_renderer_selection_.reset();
-    bumpMeshRevision();
-    commitDocumentHistory(
-        "Deleted geometry",
-        mesh::EntitySelection{},
-        std::nullopt
-    );
-    appendLog(
-        "MODIFY",
-        "Deleted " + std::to_string(result.deleted_face_count) + " faces and " +
-            std::to_string(result.deleted_edge_count) + " edges and " +
-            std::to_string(result.deleted_point_count) + " points."
-    );
+    beginModifyDeleteOperation(options);
 }
 
 void EditorApplication::handleEntitySetActions(const ui::EditorUiActions& actions) {
@@ -1305,6 +1587,10 @@ void EditorApplication::restoreDocumentHistoryNode(std::size_t node_index, std::
         << " triangles=" << active_document_->triangles.size()
         << " vertices=" << active_document_->positions.size()
         << std::endl;
+    beginDocumentTopologyPrecompute(
+        "Updating mesh caches",
+        "Recomputing topology caches for restored history state."
+    );
     appendLog("HISTORY", std::move(action) + " " + document_history_[node_index].label + '.');
 }
 
