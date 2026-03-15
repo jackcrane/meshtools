@@ -80,6 +80,7 @@ void ViewportPane::draw(
     std::string_view face_shortcut,
     std::string_view point_shortcut,
     std::string_view add_to_entity_set_shortcut,
+    std::string_view select_similar_shortcut,
     std::string_view expand_selection_shortcut,
     std::string_view invert_selection_shortcut,
     std::string_view modify_delete_shortcut,
@@ -395,6 +396,12 @@ void ViewportPane::draw(
         }
         ImGui::EndDisabled();
         ImGui::Separator();
+        if (ImGui::MenuItem(
+                "Select Similar",
+                select_similar_shortcut.empty() ? nullptr : select_similar_shortcut.data()
+            )) {
+            openSelectSimilarDialog();
+        }
         if (ImGui::MenuItem("Expand selection", expand_selection_shortcut_label)) {
             openExpandSelectionDialog();
         }
@@ -468,6 +475,7 @@ void ViewportPane::draw(
 
     drawExpandSelectionDialog(state, actions);
     drawModifyDeleteDialog(state, actions);
+    select_similar_operation_.draw(state, actions);
     modify_project_operation_.draw(state, actions);
 
     ImGui::End();
@@ -476,6 +484,10 @@ void ViewportPane::draw(
 void ViewportPane::openExpandSelectionDialog() {
     expand_selection_dialog_pending_open_ = true;
     close_expand_selection_dialog_ = false;
+}
+
+void ViewportPane::openSelectSimilarDialog() {
+    select_similar_operation_.openDialog();
 }
 
 void ViewportPane::openModifyDeleteDialog() {

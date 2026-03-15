@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "meshtools/mesh/MeshDocument.h"
+#include "meshtools/render/SelectSimilar.h"
 
 namespace meshtools::render {
 
@@ -123,9 +124,12 @@ class ViewportRenderer {
     [[nodiscard]] mesh::EntitySelection currentSelection() const;
     void setSelection(mesh::EntitySelection selection);
     [[nodiscard]] EdgeLoopSelectionResult selectEdgeLoop();
+    [[nodiscard]] SelectSimilarResult evaluateSelectSimilar(const SelectSimilarParams& params) const;
     [[nodiscard]] ExpandSelectionResult evaluateExpandSelection(const ExpandSelectionParams& params) const;
     void setExpandSelectionPreview(std::vector<std::uint32_t> face_indices);
     void clearExpandSelectionPreview();
+    void setSelectSimilarPreview(std::vector<std::uint32_t> edge_indices);
+    void clearSelectSimilarPreview();
 
     [[nodiscard]] std::uint32_t textureId() const;
     [[nodiscard]] int textureWidth() const;
@@ -182,6 +186,8 @@ class ViewportRenderer {
     std::uint32_t selected_face_vertex_buffer_ = 0;
     std::uint32_t preview_face_vertex_array_ = 0;
     std::uint32_t preview_face_vertex_buffer_ = 0;
+    std::uint32_t preview_edge_vertex_array_ = 0;
+    std::uint32_t preview_edge_vertex_buffer_ = 0;
     std::uint32_t document_edge_vertex_array_ = 0;
     std::uint32_t document_edge_vertex_buffer_ = 0;
     std::uint32_t selected_edge_vertex_array_ = 0;
@@ -192,6 +198,7 @@ class ViewportRenderer {
     std::uint32_t index_count_ = 0;
     std::uint32_t selected_face_vertex_count_ = 0;
     std::uint32_t preview_face_vertex_count_ = 0;
+    std::uint32_t preview_edge_vertex_count_ = 0;
     std::uint32_t document_edge_vertex_count_ = 0;
     std::uint32_t selected_edge_vertex_count_ = 0;
     std::uint32_t selected_point_vertex_count_ = 0;
@@ -200,6 +207,7 @@ class ViewportRenderer {
     CameraState camera_{};
     UploadedMeshState uploaded_mesh_state_{};
     std::vector<mesh::Vec3> normalized_positions_;
+    std::vector<mesh::Vec3> topology_positions_;
     std::vector<mesh::Triangle> normalized_triangles_;
     std::vector<Edge> unique_edges_;
     std::vector<Edge> unique_edge_topology_vertices_;
@@ -210,6 +218,7 @@ class ViewportRenderer {
     std::vector<std::uint32_t> selected_face_indices_;
     std::vector<std::uint32_t> selected_point_indices_;
     std::vector<std::uint32_t> preview_face_indices_;
+    std::vector<std::uint32_t> preview_edge_indices_;
     std::optional<std::uint32_t> face_selection_anchor_;
     std::optional<std::uint32_t> edge_selection_anchor_;
     struct EdgeLoopCycleState {

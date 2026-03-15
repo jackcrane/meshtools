@@ -12,6 +12,7 @@
 #include "meshtools/mesh/MeshOperations/CreateFace.h"
 #include "meshtools/mesh/MeshOperations/DeleteSelection.h"
 #include "meshtools/mesh/MeshOperations/ProjectEdge.h"
+#include "meshtools/render/SelectSimilar.h"
 
 namespace meshtools::ui {
 
@@ -22,6 +23,13 @@ struct EditorUiState {
         std::size_t preview_total_count = 0;
         std::size_t preview_face_count = 0;
         std::size_t preview_added_face_count = 0;
+        std::span<const std::string> unavailable_reasons;
+    };
+
+    struct SelectSimilarFeedback {
+        bool available = false;
+        std::size_t match_count = 0;
+        std::size_t preview_edge_count = 0;
         std::span<const std::string> unavailable_reasons;
     };
 
@@ -46,6 +54,7 @@ struct EditorUiState {
         }
     } selection_summary;
     ExpandSelectionFeedback expand_selection_feedback;
+    SelectSimilarFeedback select_similar_feedback;
 };
 
 enum class PanModifier {
@@ -180,10 +189,21 @@ struct EditorUiActions {
         std::optional<mesh::ModifyProjectTarget> end_target;
     };
 
+    struct SelectSimilarRequest {
+        enum class Intent {
+            Preview,
+            AddToSelection,
+        };
+
+        render::SelectSimilarParams config;
+        Intent intent = Intent::Preview;
+    };
+
     bool request_exit = false;
     bool request_open_document = false;
     bool request_save_project = false;
     bool request_select_edge_loop = false;
+    bool select_similar_dialog_open = false;
     bool request_invert_selection = false;
     bool request_modify_create_face = false;
     bool request_add_selection_to_entity_set = false;
@@ -197,6 +217,7 @@ struct EditorUiActions {
     std::optional<ExpandSelectionRequest> request_expand_selection;
     std::optional<ModifyDeleteRequest> request_modify_delete;
     std::optional<ModifyProjectRequest> request_modify_project;
+    std::optional<SelectSimilarRequest> request_select_similar;
     ViewportCameraInput viewport_camera;
     ViewportSelectionRequest viewport_selection;
     std::vector<EditorUiLogEvent> event_logs;

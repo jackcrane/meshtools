@@ -567,6 +567,20 @@ void ViewportRenderer::updateHighlightBuffers() {
     preview_face_vertex_count_ = static_cast<std::uint32_t>(preview_face_vertices.size());
     upload_highlight_geometry(preview_face_vertex_array_, preview_face_vertex_buffer_, preview_face_vertices);
 
+    std::vector<HighlightVertex> preview_edge_vertices;
+    preview_edge_vertices.reserve(preview_edge_indices_.size() * 2ULL);
+    for (const std::uint32_t edge_index : preview_edge_indices_) {
+        if (edge_index >= unique_edges_.size()) {
+            continue;
+        }
+
+        const Edge& edge = unique_edges_[edge_index];
+        preview_edge_vertices.push_back(HighlightVertex{{normalized_positions_[edge.a].x, normalized_positions_[edge.a].y, normalized_positions_[edge.a].z}});
+        preview_edge_vertices.push_back(HighlightVertex{{normalized_positions_[edge.b].x, normalized_positions_[edge.b].y, normalized_positions_[edge.b].z}});
+    }
+    preview_edge_vertex_count_ = static_cast<std::uint32_t>(preview_edge_vertices.size());
+    upload_highlight_geometry(preview_edge_vertex_array_, preview_edge_vertex_buffer_, preview_edge_vertices);
+
     std::vector<HighlightVertex> edge_vertices;
     edge_vertices.reserve(selected_edge_indices_.size() * 2ULL);
     for (const std::uint32_t edge_index : selected_edge_indices_) {
@@ -1043,6 +1057,7 @@ void ViewportRenderer::clearSelection() {
     selected_face_indices_.clear();
     selected_point_indices_.clear();
     preview_face_indices_.clear();
+    preview_edge_indices_.clear();
     face_selection_anchor_.reset();
     edge_selection_anchor_.reset();
     edge_loop_cycle_ = {};
@@ -1386,6 +1401,15 @@ ViewportRenderer::EdgeLoopSelectionResult ViewportRenderer::selectEdgeLoop() {
     return result;
 }
 
+SelectSimilarResult ViewportRenderer::evaluateSelectSimilar(const SelectSimilarParams& params) const {
+    std::vector<SimilarityEdge> edges;
+    edges.reserve(unique_edge_topology_vertices_.size());
+    for (const Edge& edge : unique_edge_topology_vertices_) {
+        edges.push_back(SimilarityEdge{.a = edge.a, .b = edge.b});
+    }
+    return render::evaluateSelectSimilar(topology_positions_, edges, currentSelection(), params);
+}
+
 ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelection(const ExpandSelectionParams& params) const {
     ExpandSelectionResult result;
     result.selection = currentSelection();
@@ -1605,6 +1629,17 @@ void ViewportRenderer::setExpandSelectionPreview(std::vector<std::uint32_t> face
 
 void ViewportRenderer::clearExpandSelectionPreview() {
     preview_face_indices_.clear();
+    updateHighlightBuffers();
+}
+
+void ViewportRenderer::setSelectSimilarPreview(std::vector<std::uint32_t> edge_indices) {
+    normalizeSelectionIndices(edge_indices, unique_edges_.size());
+    preview_edge_indices_ = std::move(edge_indices);
+    updateHighlightBuffers();
+}
+
+void ViewportRenderer::clearSelectSimilarPreview() {
+    preview_edge_indices_.clear();
     updateHighlightBuffers();
 }
 

@@ -151,6 +151,13 @@ void ViewportRenderer::ensureHighlightResources() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(HighlightVertex), reinterpret_cast<const void*>(offsetof(HighlightVertex, position)));
 
+    glGenVertexArrays(1, &preview_edge_vertex_array_);
+    glGenBuffers(1, &preview_edge_vertex_buffer_);
+    glBindVertexArray(preview_edge_vertex_array_);
+    glBindBuffer(GL_ARRAY_BUFFER, preview_edge_vertex_buffer_);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(HighlightVertex), reinterpret_cast<const void*>(offsetof(HighlightVertex, position)));
+
     glGenVertexArrays(1, &document_edge_vertex_array_);
     glGenBuffers(1, &document_edge_vertex_buffer_);
     glBindVertexArray(document_edge_vertex_array_);
@@ -185,6 +192,7 @@ void ViewportRenderer::ensurePlaceholderMesh() {
     uploadGeometry(vertices, indices);
     uploaded_mesh_state_ = {};
     normalized_positions_.clear();
+    topology_positions_.clear();
     normalized_triangles_.clear();
     unique_edges_.clear();
     unique_edge_topology_vertices_.clear();
@@ -289,6 +297,19 @@ void ViewportRenderer::syncMesh(const mesh::MeshDocument* document, UpAxis up_ax
         }
 
         topology_vertex_indices[vertex_index] = iterator->second;
+    }
+
+    topology_positions_.assign(topology_vertex_count, mesh::Vec3{});
+    std::vector<unsigned char> topology_position_initialized(topology_vertex_count, 0);
+    for (std::size_t vertex_index = 0; vertex_index < topology_vertex_indices.size(); ++vertex_index) {
+        const std::uint32_t topology_vertex_index = topology_vertex_indices[vertex_index];
+        if (topology_vertex_index >= topology_positions_.size() ||
+            topology_position_initialized[topology_vertex_index] != 0) {
+            continue;
+        }
+
+        topology_positions_[topology_vertex_index] = normalized_positions_[vertex_index];
+        topology_position_initialized[topology_vertex_index] = 1;
     }
 
     unique_edges_.clear();

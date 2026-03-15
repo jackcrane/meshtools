@@ -208,6 +208,12 @@ int EditorApplication::run() {
                 .preview_added_face_count = expand_selection_feedback_.preview_added_face_count,
                 .unavailable_reasons = expand_selection_feedback_reasons_,
             },
+            .select_similar_feedback = ui::EditorUiState::SelectSimilarFeedback{
+                .available = select_similar_feedback_.available,
+                .match_count = select_similar_feedback_.match_count,
+                .preview_edge_count = select_similar_feedback_.preview_edge_count,
+                .unavailable_reasons = select_similar_feedback_reasons_,
+            },
         };
         const ui::EditorUiActions actions = editor_ui_.draw(ui_state);
         editor_ui_.endFrame(window_.nativeHandle());
@@ -224,6 +230,7 @@ int EditorApplication::run() {
         if (actions.request_invert_selection) {
             handleInvertSelectionRequest();
         }
+        handleSelectSimilarActions(actions);
         handleExpandSelectionActions(actions);
         handleModifyCreateFaceRequest(actions);
         handleModifyProjectRequest(actions);
@@ -357,6 +364,8 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     pending_renderer_selection_.reset();
     expand_selection_feedback_reasons_.clear();
     expand_selection_feedback_ = {};
+    select_similar_feedback_reasons_.clear();
+    select_similar_feedback_ = {};
     appendLog(
         "IMPORT",
         "Loaded " + active_document_->displayName() +
@@ -383,6 +392,8 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
     log_messages_ = std::move(result.log_messages);
     expand_selection_feedback_reasons_.clear();
     expand_selection_feedback_ = {};
+    select_similar_feedback_reasons_.clear();
+    select_similar_feedback_ = {};
     appendLog(
         "PROJECT",
         "Opened " + active_document_->displayName() +
@@ -693,6 +704,60 @@ void EditorApplication::handleExpandSelectionActions(const ui::EditorUiActions& 
     viewport_renderer_.clearExpandSelectionPreview();
     expand_selection_feedback_reasons_.clear();
     expand_selection_feedback_ = {};
+}
+
+void EditorApplication::handleSelectSimilarActions(const ui::EditorUiActions& actions) {
+    if (!active_document_.has_value()) {
+        select_similar_feedback_reasons_.clear();
+        select_similar_feedback_ = {};
+        viewport_renderer_.clearSelectSimilarPreview();
+        return;
+    }
+
+    if (!actions.request_select_similar.has_value()) {
+        if (!actions.select_similar_dialog_open) {
+            select_similar_feedback_reasons_.clear();
+            select_similar_feedback_ = {};
+            viewport_renderer_.clearSelectSimilarPreview();
+        }
+        return;
+    }
+
+    const render::SelectSimilarResult result =
+        viewport_renderer_.evaluateSelectSimilar(actions.request_select_similar->config);
+    select_similar_feedback_reasons_ = result.unavailable_reasons;
+    select_similar_feedback_ = ui::EditorUiState::SelectSimilarFeedback{
+        .available = result.available,
+        .match_count = result.match_count,
+        .preview_edge_count = result.preview_edge_indices.size(),
+        .unavailable_reasons = select_similar_feedback_reasons_,
+    };
+    viewport_renderer_.setSelectSimilarPreview(result.preview_edge_indices);
+
+    if (actions.request_select_similar->intent == ui::EditorUiActions::SelectSimilarRequest::Intent::Preview) {
+        return;
+    }
+
+    if (!result.available) {
+        appendLog(
+            "SELECTION",
+            result.unavailable_reasons.empty()
+                ? "Select Similar unavailable."
+                : "Select Similar unavailable: " + result.unavailable_reasons.front()
+        );
+        return;
+    }
+
+    viewport_renderer_.setSelection(result.selection);
+    selected_entity_set_index_.reset();
+    viewport_renderer_.clearSelectSimilarPreview();
+    select_similar_feedback_reasons_.clear();
+    select_similar_feedback_ = {};
+    appendLog(
+        "SELECTION",
+        "Added " + std::to_string(result.preview_edge_indices.size()) +
+            " similar edges from " + std::to_string(result.match_count) + " matching groups."
+    );
 }
 
 void EditorApplication::createEntitySetFromCurrentSelection() {

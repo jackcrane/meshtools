@@ -10,6 +10,7 @@
 #include "meshtools/mesh/MeshOperations/ProjectEdge.h"
 #include "meshtools/ui/EditorUiTypes.h"
 #include "meshtools/ui/UIOperations/ModifyProject.h"
+#include "meshtools/ui/UIOperations/SelectSimilar.h"
 
 struct GLFWwindow;
 
@@ -32,6 +33,7 @@ class ViewportPane {
         std::string_view face_shortcut,
         std::string_view point_shortcut,
         std::string_view add_to_entity_set_shortcut,
+        std::string_view select_similar_shortcut,
         std::string_view expand_selection_shortcut,
         std::string_view invert_selection_shortcut,
         std::string_view modify_delete_shortcut,
@@ -48,6 +50,7 @@ class ViewportPane {
     );
 
     void openExpandSelectionDialog();
+    void openSelectSimilarDialog();
     void openModifyDeleteDialog();
     void openModifyProjectDialog();
     void setTexture(std::uint32_t texture_id);
@@ -100,6 +103,7 @@ class ViewportPane {
     bool modify_delete_dialog_pending_open_ = false;
     EditorUiActions::ModifyDeleteRequest modify_delete_request_{};
     ModifyProjectOperation modify_project_operation_{};
+    SelectSimilarOperation select_similar_operation_{};
 };
 
 }  // namespace meshtools::ui

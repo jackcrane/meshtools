@@ -36,6 +36,7 @@ class EditorApplication {
     void handleEntitySetActions(const ui::EditorUiActions& actions);
     void handleExpandSelectionActions(const ui::EditorUiActions& actions);
     void handleInvertSelectionRequest();
+    void handleSelectSimilarActions(const ui::EditorUiActions& actions);
     void handleSelectEdgeLoopRequest();
     void handleModifyCreateFaceRequest(const ui::EditorUiActions& actions);
     void handleModifyProjectRequest(const ui::EditorUiActions& actions);
@@ -57,7 +58,9 @@ class EditorApplication {
     std::optional<std::size_t> selected_entity_set_index_;
     std::vector<std::string> log_messages_;
     std::vector<std::string> expand_selection_feedback_reasons_;
+    std::vector<std::string> select_similar_feedback_reasons_;
     ui::EditorUiState::ExpandSelectionFeedback expand_selection_feedback_{};
+    ui::EditorUiState::SelectSimilarFeedback select_similar_feedback_{};
     ui::ViewportCameraInput pending_viewport_camera_input_;
     std::optional<mesh::EntitySelection> pending_renderer_selection_;
 };

@@ -15,6 +15,7 @@ EditorUi::EditorUi(GLFWwindow* window, const char* glsl_version)
     sequential_shortcuts_.registerShortcut(ImGuiKey_F, ImGuiKey_P, "Toggle point selection", ShortcutCommand::TogglePointSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_E, "Add to Entity Set", ShortcutCommand::AddSelectionToEntitySet);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_L, "Select edge loop", ShortcutCommand::SelectEdgeLoop, true);
+    sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_S, "Select similar", ShortcutCommand::SelectSimilar);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_X, "Expand selection", ShortcutCommand::ExpandSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_S, ImGuiKey_I, "Invert selection", ShortcutCommand::InvertSelection);
     sequential_shortcuts_.registerShortcut(ImGuiKey_M, ImGuiKey_D, "Modify Delete", ShortcutCommand::ModifyDelete);
@@ -48,6 +49,8 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::TogglePointSelection);
     const std::string add_to_entity_set_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::AddSelectionToEntitySet);
+    const std::string select_similar_shortcut =
+        sequential_shortcuts_.shortcutLabel(ShortcutCommand::SelectSimilar);
     const std::string expand_selection_shortcut =
         sequential_shortcuts_.shortcutLabel(ShortcutCommand::ExpandSelection);
     const std::string invert_selection_shortcut =
@@ -75,6 +78,7 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
         face_shortcut,
         point_shortcut,
         add_to_entity_set_shortcut,
+        select_similar_shortcut,
         expand_selection_shortcut,
         invert_selection_shortcut,
         modify_delete_shortcut,
@@ -166,6 +170,9 @@ void EditorUi::triggerShortcutAction(ShortcutCommand action, const EditorUiState
             return;
         case ShortcutCommand::SelectEdgeLoop:
             requestSelectEdgeLoop(actions);
+            return;
+        case ShortcutCommand::SelectSimilar:
+            viewport_pane_.openSelectSimilarDialog();
             return;
         case ShortcutCommand::ExpandSelection:
             viewport_pane_.openExpandSelectionDialog();

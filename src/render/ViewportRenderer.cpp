@@ -20,6 +20,12 @@ ViewportRenderer::~ViewportRenderer() {
     if (preview_face_vertex_array_ != 0) {
         glDeleteVertexArrays(1, &preview_face_vertex_array_);
     }
+    if (preview_edge_vertex_buffer_ != 0) {
+        glDeleteBuffers(1, &preview_edge_vertex_buffer_);
+    }
+    if (preview_edge_vertex_array_ != 0) {
+        glDeleteVertexArrays(1, &preview_edge_vertex_array_);
+    }
     if (document_edge_vertex_buffer_ != 0) {
         glDeleteBuffers(1, &document_edge_vertex_buffer_);
     }
@@ -189,6 +195,16 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
             glUniform1f(highlight_depth_bias_location, detail::kFaceDepthBias * 0.5F);
             glUniform1i(highlight_round_points_location, 0);
             glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(preview_face_vertex_count_));
+        }
+
+        if (preview_edge_vertex_count_ > 0U) {
+            glBindVertexArray(preview_edge_vertex_array_);
+            glUniform4f(highlight_color_location, 0.22F, 0.68F, 1.0F, 1.0F);
+            glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
+            glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias * 0.85F);
+            glUniform1i(highlight_round_points_location, 0);
+            glLineWidth(3.0F);
+            glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(preview_edge_vertex_count_));
         }
 
         if (selected_edge_vertex_count_ > 0U) {

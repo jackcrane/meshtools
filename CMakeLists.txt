@@ -65,6 +65,7 @@ add_library(meshtools_core STATIC
     src/render/ViewportRenderer.cpp
     src/render/ViewportRendererDetail.cpp
     src/render/ViewportRendererResources.cpp
+    src/render/SelectSimilar.cpp
     src/render/ViewportRendererSelection.cpp
     src/ui/BottomPane.cpp
     src/ui/EditorDockLayout.cpp
@@ -74,6 +75,7 @@ add_library(meshtools_core STATIC
     src/ui/SequentialShortcutController.cpp
     src/ui/SettingsWindow.cpp
     src/ui/UIOperations/ModifyProject.cpp
+    src/ui/UIOperations/SelectSimilar.cpp
     src/ui/ViewportCommands.cpp
     src/ui/ViewportGizmo.cpp
     src/ui/ViewportPane.cpp

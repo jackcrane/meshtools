@@ -17,6 +17,7 @@ enum class ShortcutCommand {
     TogglePointSelection,
     AddSelectionToEntitySet,
     SelectEdgeLoop,
+    SelectSimilar,
     ExpandSelection,
     InvertSelection,
     ModifyDelete,
