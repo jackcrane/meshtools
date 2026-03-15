@@ -82,9 +82,9 @@ add_library(meshtools_core STATIC
 )
 
 if(APPLE)
-    target_sources(meshtools_core PRIVATE src/platform/FileDialog_mac.mm src/platform/NativeMenu_mac.mm)
+    target_sources(meshtools_core PRIVATE src/platform/FileDialog_mac.mm src/platform/NativeMenu_mac.mm src/platform/NativeWindow_mac.mm)
 else()
-    target_sources(meshtools_core PRIVATE src/platform/FileDialog_stub.cpp src/platform/NativeMenu_stub.cpp)
+    target_sources(meshtools_core PRIVATE src/platform/FileDialog_stub.cpp src/platform/NativeMenu_stub.cpp src/platform/NativeWindow_stub.cpp)
 endif()
 
 target_include_directories(meshtools_core

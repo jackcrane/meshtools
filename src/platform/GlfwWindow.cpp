@@ -6,6 +6,8 @@
 
 #include <GLFW/glfw3.h>
 
+#include "meshtools/platform/NativeWindow.h"
+
 namespace meshtools::platform {
 namespace {
 
@@ -65,6 +67,8 @@ GlfwWindow& GlfwWindow::operator=(GlfwWindow&& other) noexcept {
 }
 
 void GlfwWindow::beginFrame(float red, float green, float blue, float alpha) const {
+    syncNativeWindowTheme(handle_, red, green, blue, alpha);
+
     int framebuffer_width = 0;
     int framebuffer_height = 0;
     glfwGetFramebufferSize(handle_, &framebuffer_width, &framebuffer_height);
