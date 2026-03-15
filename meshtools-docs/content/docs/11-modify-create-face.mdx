@@ -1,0 +1,35 @@
+---
+title: Modify Create Face
+description: Create one or more triangles from selected boundary points or edges.
+---
+
+Modify Create Face attempts to build a new face region from your current selection.
+
+## Inputs It Understands
+
+The tool can derive a polygon from either:
+
+- selected points, or
+- selected edges.
+
+Point-driven creation is preferred when at least three suitable points are selected. If that cannot form a usable polygon, MeshTools falls back to edge-driven ordering when possible.
+
+## Practical Guidance
+
+For the best results:
+
+- select a clean perimeter,
+- avoid ambiguous crossing boundaries,
+- use points when you need exact control,
+- use edges when the perimeter already exists in the mesh.
+
+## What Happens On Success
+
+- MeshTools triangulates the ordered boundary.
+- New triangles are appended to the mesh.
+- The newly created faces become the new selection.
+- The operation is recorded in history.
+
+## What Happens On Failure
+
+If the selection cannot define a valid polygon, the operation is skipped and the console reports that the selected geometry could not form a face.

@@ -1,0 +1,41 @@
+---
+title: Getting Started
+description: Get oriented in MeshTools before you begin importing meshes or editing geometry.
+---
+
+MeshTools opens as a docked editor with a left sidebar, a central viewport, and a bottom utility pane.
+
+## First Launch Expectations
+
+- The app starts with no active project loaded.
+- The left pane inspector tells you to use `File > Open` to load a `.mt` project or import an OBJ/STL mesh.
+- The viewport is ready immediately, but no mesh is shown until you open a file.
+- The console starts with readiness messages and then records later actions such as open, save, selection, and modify operations.
+
+## Recommended First Session
+
+1. Open a sample from `File > Open Sample` or import an OBJ/STL mesh with `File > Open`.
+2. Read the mesh in the left pane inspector to confirm path, format, counts, and project up axis.
+3. Learn viewport movement before editing.
+4. Turn on the selection filters you need.
+5. Make a small selection, create an entity set, and save a `.mt` project.
+
+## Core Concepts
+
+| Concept | Meaning |
+| --- | --- |
+| Document | The active mesh and its project metadata |
+| Project | A saved `.mt` archive containing your working mesh state |
+| Selection | The currently highlighted faces, edges, and points |
+| Entity set | A named saved collection of selected entities |
+| History | Saved document states used for undo, redo, and rollback |
+
+## Menu Basics
+
+On macOS, MeshTools exposes native app menus:
+
+- `File`: open files, open samples, save, save as.
+- `Edit`: undo and redo.
+- App menu: settings and quit.
+
+If you want a guided workflow next, continue with [Opening and Saving Files](/docs/02-opening-and-saving).

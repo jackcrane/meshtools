@@ -1,0 +1,50 @@
+---
+title: Modify Project
+description: Create an explicit edge from the intersection line of two selected faces.
+---
+
+Modify Project creates a projected edge from two source faces.
+
+## Required Starting Selection
+
+You must select exactly two valid faces.
+
+The tool is unavailable when:
+
+- fewer than two faces are selected,
+- more than two faces are selected,
+- one of the faces is degenerate,
+- the face planes are parallel.
+
+## Two Length Modes
+
+### Infinite Length
+
+MeshTools extends the intersection line well beyond the current model bounds and creates an explicit edge from that long segment.
+
+### Captured Start and End
+
+When `Infinite Length` is off, you must capture:
+
+- one start terminator,
+- one end terminator.
+
+Each terminator must be exactly one entity:
+
+- one face,
+- or one edge,
+- or one point.
+
+The two source faces are ignored during capture, so you can keep them selected while choosing terminators.
+
+## Typical Workflow
+
+1. Select two faces.
+2. Open `Modify Project`.
+3. Decide whether the result should be infinite or bounded.
+4. If bounded, select one terminator entity and capture `Start`, then repeat for `End`.
+5. Click `Apply`.
+
+## Result
+
+On success, MeshTools creates an explicit edge and selects it so you can inspect or reuse it immediately.

@@ -1,0 +1,47 @@
+---
+title: Modify Delete
+description: Delete selected faces, edges, or points and let MeshTools remap the remaining mesh data.
+---
+
+Modify Delete is a selective delete operation driven by the current selection.
+
+## What You Can Delete
+
+Depending on what is currently selected, MeshTools may offer:
+
+- `Faces`
+- `Inside Edges`
+- `Outside Edges`
+- `Points`
+
+## Edge Terms
+
+| Edge type | Meaning |
+| --- | --- |
+| Inside edge | shared by more than one face |
+| Outside edge | boundary edge used by one face or fewer |
+
+Deleting an edge deletes the faces that depend on that edge. Deleting a point deletes faces that use that point.
+
+## Typical Workflow
+
+1. Select the geometry you want to remove.
+2. Open `Modify Delete`.
+3. Leave the relevant checkboxes enabled.
+4. Click `Delete`.
+
+## What MeshTools Updates After Delete
+
+- mesh triangles,
+- point positions,
+- explicit edges,
+- entity set indices,
+- bounds,
+- normals,
+- topology caches.
+
+After the operation, the selection is cleared and the change is committed to history.
+
+## When Delete Is Unavailable
+
+If the current selection does not contain any deletable faces, edges, or points, the command is disabled.

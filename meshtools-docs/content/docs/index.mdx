@@ -1,32 +1,49 @@
 ---
-title: Hello World
-description: |
-  Your first `document`
-  You'll love it!
+title: MeshTools User Guide
+description: Learn how to open files, navigate the viewport, manage selections, edit geometry, and save MeshTools projects.
 ---
 
-Hey there! Fumadocs is the docs framework that also works on React Router!
+MeshTools is a desktop mesh editor focused on inspecting polygonal meshes, building and reusing selections, and making topology-oriented edits from an interactive viewport.
 
-## Heading
+Use this guide in order if you are new to the app:
 
-Hello World
+1. Start with [Getting Started](/docs/01-getting-started).
+2. Read [Opening and Saving Files](/docs/02-opening-and-saving).
+3. Learn the workspace in [Workspace Overview](/docs/03-workspace-overview).
+4. Practice navigation and picking in [Viewport Navigation](/docs/04-viewport-navigation) and [Selection Basics](/docs/05-selection-basics).
+5. Move into reusable workflows with [Entity Sets and History](/docs/06-entity-sets-and-history).
+6. Use the tool pages when you are ready to edit geometry.
 
-<Cards>
-  <Card title="Learn more about React Router" href="https://reactrouter.com" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
-</Cards>
+## What MeshTools Works With
 
-```ts
-console.log('I love React!');
-```
+| File type | What it is used for |
+| --- | --- |
+| `.obj` | Imported mesh source |
+| `.stl` | Imported mesh source |
+| `.mt` | MeshTools project archive for saved work |
 
-### Heading
+## What You Can Do Today
 
-#### Heading
+- Import OBJ and STL meshes.
+- Open and save `.mt` project archives.
+- Orbit, pan, zoom, and reset the viewport.
+- Select faces, edges, and points with click, box, toggle, and path-style selection.
+- Build reusable entity sets from selections.
+- Undo, redo, and jump through document history.
+- Run advanced selection tools such as Expand Selection and Select Similar.
+- Apply Modify Delete, Modify Create Face, and Modify Project operations.
+- Change per-project up axis and customize appearance, viewport behavior, and graphics quality.
 
-| Head                            | Description                         |
-| ------------------------------- | ----------------------------------- |
-| `hello`                         | Hello World                         |
-| very **important**              | Hey                                 |
-| _Surprisingly_                  | Fumadocs                            |
-| very long text that looks weird | hello world hello world hello world |
+## How The App Is Organized
+
+- The left pane is the scene tree, history browser, and inspector.
+- The center viewport is where you view the mesh, navigate, and select entities.
+- The bottom pane shows console messages, performance stats, and the active selection breakdown.
+- The Settings window holds viewport controls, import defaults, graphics options, and theme management.
+
+## Important Current Behavior
+
+- Imported meshes are not automatically project files. Use `Save` or `Save As` to create a `.mt` archive.
+- Project saves preserve mesh data, explicit edges, entity sets, project up axis, and console log history.
+- Project saves do not preserve undo history, current selection, camera position, or app-wide settings.
+- Face selection is enabled by default. Edge and point selection start disabled until you turn them on.

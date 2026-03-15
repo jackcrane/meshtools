@@ -1,0 +1,44 @@
+---
+title: Settings and Themes
+description: Configure viewport behavior, import defaults, performance, and appearance.
+---
+
+The Settings window is split into four sections.
+
+## Viewport Config
+
+These options change how the camera feels:
+
+- `Invert Y movement`
+- `Invert zoom`
+- `Pan modifier`
+- `Default up axis`
+
+`Default up axis` applies to newly imported meshes. A loaded project can still override its own up axis later.
+
+## Graphics Quality
+
+Graphics quality controls how the viewport is rendered:
+
+- `Render resolution percent` changes the internal render target scale.
+- `Debug performance` adds frame task timing breakdowns to the `Stats` tab.
+
+If the viewport feels expensive on a large mesh, lowering render resolution is the first setting to try.
+
+## File Import
+
+The import section documents axis conventions and reminds you that different tools and formats may disagree about whether Y or Z is up.
+
+Use it to choose the default orientation that should be applied to freshly imported meshes.
+
+## Appearance
+
+Appearance controls editor theme selection.
+
+- Search themes by scheme, author, or ID.
+- Click a theme to preview it immediately.
+- `Save` makes the preview the persistent saved theme.
+- `Revert` returns to the last saved theme.
+- `Random` picks a random preview theme.
+
+Theme changes are app appearance settings. They are not stored inside `.mt` project files.

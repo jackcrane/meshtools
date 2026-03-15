@@ -1,0 +1,56 @@
+---
+title: Project Files
+description: See what a MeshTools project archive contains and what state it preserves.
+---
+
+MeshTools project files use the `.mt` extension.
+
+## What A Project Save Preserves
+
+A saved project archive stores:
+
+- the mesh geometry,
+- explicit edges,
+- entity sets,
+- project up axis,
+- console log history.
+
+## What It Does Not Preserve
+
+Current project saves do not store:
+
+- undo and redo history,
+- active selection,
+- active camera position,
+- temporary selection previews,
+- app settings such as theme or viewport controls.
+
+## Archive Structure
+
+Internally, a project save is a zip archive that contains:
+
+| Path | Purpose |
+| --- | --- |
+| `config.ini` | format version, checksum, saved up axis |
+| `file.json` | mesh resource path and explicit edge data |
+| `project.log` | saved console history |
+| `resources/mesh.obj` | exported project mesh |
+| `entitysets/*.entityset` | one file per entity set |
+
+Even if you imported STL originally, the saved project archive stores the working mesh as OBJ inside the archive.
+
+## Integrity Checks On Open
+
+When MeshTools opens a project archive it:
+
+1. unpacks the archive,
+2. validates required files,
+3. checks the saved format version,
+4. recomputes a checksum,
+5. rejects the archive if the checksum does not match.
+
+That checksum check is intended to catch manual edits or damaged archives.
+
+## Platform Note
+
+Project archive open/save support currently relies on zip tooling and is not implemented for Windows builds yet.

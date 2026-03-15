@@ -1,0 +1,53 @@
+---
+title: Selection Basics
+description: Select faces, edges, and points using click, drag, toggle, path, invert, and edge-loop workflows.
+---
+
+Selection is central to almost every MeshTools workflow.
+
+## Basic Selection Modes
+
+### Replace selection
+
+- Left-click in the viewport to replace the current selection.
+- Left-drag to box-select.
+
+### Toggle selection
+
+- Hold `Cmd` on macOS or `Ctrl` on other platforms while clicking or box-selecting.
+- Matching entities are toggled instead of replacing the selection.
+
+### Path selection
+
+- Hold `Shift` while clicking.
+- MeshTools extends selection along a path from the current anchor when that path is available.
+
+## Selection Filters Matter
+
+Selection always respects the active edge/face/point filter toggles. For example, if only faces are enabled, clicking cannot pick edges or points.
+
+## Reading The Current Selection
+
+Use the bottom `Selection` tab to inspect:
+
+- total selected entities,
+- selected face count and IDs,
+- selected edge count and IDs,
+- selected point count and IDs.
+
+This is the best place to confirm what the tools will operate on.
+
+## Invert Selection
+
+- `Invert selection` flips the current selection for the enabled filter types only.
+- If faces are enabled and edges are disabled, only faces are inverted.
+
+## Select Edge Loop
+
+`Select edge loop` works from an edge selection.
+
+- Start by selecting an edge.
+- Trigger the command once to pick the first loop candidate.
+- Repeating the shortcut cycles through alternative loop candidates for the same seed edge.
+
+If the current edge cannot define a loop, MeshTools explains why in the console.

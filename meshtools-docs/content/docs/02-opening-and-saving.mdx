@@ -1,0 +1,63 @@
+---
+title: Opening and Saving Files
+description: Understand the difference between importing a mesh and opening a saved MeshTools project.
+---
+
+MeshTools treats imported meshes and saved projects differently.
+
+## Open Modes
+
+### Importing OBJ or STL
+
+When you open `.obj` or `.stl`, MeshTools imports the mesh into a new working document.
+
+- Supported import formats are OBJ and STL.
+- Imported meshes get a fresh history starting from the import event.
+- The imported document is not yet a saved MeshTools project.
+- The project up axis starts from the default import setting in Settings.
+
+### Opening `.mt`
+
+When you open `.mt`, MeshTools loads a saved project archive.
+
+- Mesh geometry is restored from the project archive.
+- Explicit edges are restored.
+- Entity sets are restored.
+- The saved project up axis is restored.
+- Console log history stored in the project is restored.
+
+## Save and Save As
+
+| Command | Behavior |
+| --- | --- |
+| `Save` | Saves back to the current `.mt` path if the document already has one |
+| `Save` on an imported mesh | Falls through to `Save As` |
+| `Save As` | Prompts for a `.mt` path and creates a new project archive |
+
+If you choose a name without the `.mt` extension, MeshTools adds `.mt` automatically.
+
+## Busy-State Rules
+
+MeshTools blocks conflicting file operations while it is:
+
+- loading a project,
+- importing a mesh,
+- restoring history,
+- running a mesh edit, or
+- rebuilding topology caches.
+
+If you try to open or save during one of those operations, the console explains why the action was skipped.
+
+## Progress Dialogs
+
+Longer operations show a modal progress dialog. You will see this during:
+
+- project open,
+- mesh import,
+- history restore,
+- modify operations, and
+- topology cache preparation.
+
+## Samples
+
+The `File > Open Sample` menu opens sample `.mt` and `.stl` files shipped with the repo. This is the fastest way to inspect the app without preparing your own mesh first.

@@ -1,0 +1,54 @@
+---
+title: Entity Sets and History
+description: Save reusable selections and navigate document state with undo, redo, and rollback.
+---
+
+Entity sets and history make MeshTools practical for longer editing sessions.
+
+## Entity Sets
+
+An entity set is a named saved group of faces, edges, and points.
+
+### Create one
+
+- Select entities in the viewport.
+- Use `Add to Entity Set`.
+- If no sets exist yet, MeshTools creates a new one automatically.
+- Otherwise, you can choose `New Entity Set` or append to an existing set.
+
+### Manage sets
+
+- Click an entity set in the scene tree to select its members.
+- Double-click its name to rename it.
+- Renaming ignores empty names and leaves unchanged names alone.
+
+### What entity sets are good for
+
+- preserving regions you will revisit,
+- building edit targets incrementally,
+- capturing selection results from Expand Selection,
+- grouping work before saving a project.
+
+## History
+
+History records document-changing actions such as:
+
+- opening or importing a document,
+- changing project up axis,
+- creating or renaming entity sets,
+- modify operations.
+
+## Ways To Move Through History
+
+| Control | Result |
+| --- | --- |
+| `Undo` | steps backward on the active branch |
+| `Redo` | steps forward on the active branch |
+| Rollback slider | jumps along the current branch |
+| History tree | jumps directly to a chosen node |
+
+Restoring an older node rebuilds the mesh state and then refreshes topology caches.
+
+## What History Does Not Mean
+
+History is session state. It is not currently saved into the `.mt` project archive. When you reopen a project later, you start with a fresh history rooted at the open event.

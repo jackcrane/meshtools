@@ -1,0 +1,42 @@
+---
+title: Shortcuts
+description: Reference the keyboard shortcuts used for viewport controls, selection tools, and editing commands.
+---
+
+MeshTools uses both standard shortcuts and two-key sequences.
+
+## Standard Shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Cmd/Ctrl + Z` | Undo |
+| `Shift + Cmd/Ctrl + Z` | Redo |
+| `Cmd/Ctrl + Y` | Redo |
+
+## Two-Key Viewport Sequences
+
+Press the first key, then the second key. MeshTools shows a small menu of available completions while a sequence is pending.
+
+| Keys | Action |
+| --- | --- |
+| `V W` | Toggle wireframe |
+| `V S` | Toggle shaded triangles |
+| `V P` | Toggle point display |
+| `V R` | Reset viewport |
+| `F E` | Toggle edge selection filter |
+| `F F` | Toggle face selection filter |
+| `F P` | Toggle point selection filter |
+| `S E` | Add selection to entity set |
+| `S L` | Select edge loop and cycle candidates |
+| `S S` | Open Select Similar |
+| `S X` | Open Expand Selection |
+| `S I` | Invert selection |
+| `M D` | Open Modify Delete |
+| `M F` | Run Modify Create Face |
+| `M P` | Open Modify Project |
+
+## Sequence Behavior
+
+- `Esc` cancels an unfinished sequence.
+- Holding `Cmd/Ctrl` cancels sequence handling so standard OS shortcuts still work.
+- `S L` is repeatable: pressing the second key again cycles loop alternatives.

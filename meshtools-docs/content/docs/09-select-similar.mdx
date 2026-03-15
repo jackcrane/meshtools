@@ -1,0 +1,45 @@
+---
+title: Select Similar
+description: Find edge groups that match the shape of the currently selected edge pattern.
+---
+
+Select Similar is an edge-pattern matcher. It adds matching edge groups to your current selection.
+
+## Requirements
+
+The current implementation expects:
+
+- at least one selected edge,
+- no more than 12 selected edges,
+- one connected group of selected edges.
+
+If those requirements are not met, the dialog shows an unavailable reason instead of a preview.
+
+## How Matching Works At A High Level
+
+MeshTools compares the selected edge pattern against the rest of the mesh using:
+
+- edge lengths,
+- local connectivity,
+- optional rotation allowances,
+- optional scaling allowances,
+- a numeric tolerance.
+
+## Dialog Options
+
+| Option | Meaning |
+| --- | --- |
+| `Allow rotation in X/Y/Z` | permits rotated matches |
+| `Allow scaling` | permits scaled copies |
+| `Require uniform scaling` | only valid when scaling is enabled |
+| `Tolerance (%)` | controls how strict the comparison is |
+
+## Result Model
+
+- The preview reports matching groups and how many edges would be added.
+- Clicking `Add to Selection` merges those edges into the current selection.
+- The tool does not remove the original selected edges.
+
+## When To Use It
+
+Select Similar is strongest when your mesh has repeated mechanical details, patterned ribs, symmetric cut features, or repeated slots defined by similar edge structures.

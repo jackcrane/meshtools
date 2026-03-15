@@ -1,0 +1,55 @@
+---
+title: Expand Selection
+description: Grow a face selection using coplanar, adjacent-angle, or intersecting-normal rules.
+---
+
+Expand Selection is a face-driven tool that previews results before applying them.
+
+## What It Does
+
+The tool evaluates your current face selection and proposes a larger face set using one of three methods:
+
+| Method | Best for |
+| --- | --- |
+| `Coplanar` | broad flat regions |
+| `Adjacent` | smooth transitions with a max angle threshold |
+| `Intersecting Normals` | faces whose normals converge on a common target |
+
+## Using The Dialog
+
+1. Select one or more faces.
+2. Open `Expand selection`.
+3. Choose a method and adjust its parameters.
+4. Watch the preview update in the viewport.
+5. Either `Select` the result or `Add to Entity Set`.
+
+## Method Options
+
+### Coplanar
+
+- `Include Parallel`
+- `Select adjacent only`
+- `Tolerance (%)`
+
+### Adjacent
+
+- `Max angle`
+
+### Intersecting Normals
+
+- `Include inverse normals`
+- `Tolerance`
+- `Allow linear intersection`
+
+## Typical Failure Reasons
+
+MeshTools disables the final action and explains why when:
+
+- no mesh is loaded,
+- no faces are selected,
+- the selected faces do not define a valid target for the chosen method,
+- linear intersection is requested without enough qualifying faces.
+
+## Good Practice
+
+Use `Add to Entity Set` when you are exploring candidate regions and do not want to lose the current working selection.

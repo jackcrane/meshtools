@@ -1,0 +1,67 @@
+---
+title: Viewport Navigation
+description: Move around the mesh, control overlays, and understand the viewport gizmo.
+---
+
+The viewport is both a camera control surface and your main editing canvas.
+
+## Camera Controls
+
+### Orbit
+
+- Drag with the right mouse button to orbit.
+- Vertical orbit respects the `Invert Y movement` setting.
+
+### Pan
+
+Panning uses the right mouse button plus the configured pan mode:
+
+| Pan modifier setting | How to pan |
+| --- | --- |
+| `Shift` | Hold `Shift` and drag right mouse |
+| `Cmd/Ctrl` | Hold `Cmd` on macOS or `Ctrl` elsewhere and drag right mouse |
+| `Right-click` | Right-drag always pans instead of orbiting |
+
+### Zoom
+
+- Use the mouse wheel to zoom.
+- Zoom direction respects the `Invert zoom` setting.
+
+### Reset
+
+- Use the `V R` shortcut to reset the viewport camera and restore default overlay toggles.
+
+## Display Controls
+
+The top-right vertical overlay toggles how the mesh is drawn:
+
+- wireframe,
+- shaded triangles,
+- point display.
+
+These are visual aids only. They do not change the mesh data.
+
+## Selection Filters
+
+The second overlay stack controls what the picker can target:
+
+- edges,
+- faces,
+- points.
+
+Default state:
+
+- faces enabled,
+- edges disabled,
+- points disabled.
+
+If a filter is off, that entity type is ignored by click, box, and invert selection.
+
+## Viewport Gizmo
+
+The lower-left gizmo shows the X, Y, and Z axes relative to the current camera.
+
+- Right-click the gizmo to switch the project between Y-up and Z-up.
+- If no project is open, the gizmo cannot change up axis.
+
+The gizmo is a project-level orientation tool, not just a camera decoration.
