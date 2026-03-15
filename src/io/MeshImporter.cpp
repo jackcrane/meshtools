@@ -61,6 +61,18 @@ MeshImportResult failure(std::string message) {
     return MeshImportResult{.document = std::nullopt, .error_message = std::move(message)};
 }
 
+void reportProgress(
+    const MeshImportProgressCallback& progress_callback,
+    float progress,
+    std::string_view stage
+) {
+    if (!progress_callback) {
+        return;
+    }
+
+    progress_callback(std::clamp(progress, 0.0F, 1.0F), stage);
+}
+
 std::optional<std::size_t> resolveObjIndex(int raw_index, std::size_t vertex_count) {
     if (raw_index > 0) {
         const std::size_t zero_based = static_cast<std::size_t>(raw_index - 1);
@@ -80,11 +92,13 @@ std::optional<std::size_t> resolveObjIndex(int raw_index, std::size_t vertex_cou
     return std::nullopt;
 }
 
-MeshImportResult importObj(const std::filesystem::path& path) {
+MeshImportResult importObj(const std::filesystem::path& path, const MeshImportProgressCallback& progress_callback) {
     std::ifstream input(path);
     if (!input) {
         return failure("Failed to open OBJ file.");
     }
+    const std::uintmax_t total_bytes = std::filesystem::file_size(path);
+    reportProgress(progress_callback, 0.0F, "Reading OBJ");
 
     MeshDocument document;
     document.source_path = path;
@@ -164,6 +178,17 @@ MeshImportResult importObj(const std::filesystem::path& path) {
                 .c = face_indices[index + 1],
             });
         }
+
+        if ((line_number % 2048U) == 0U) {
+            const std::streampos current_offset = input.tellg();
+            if (current_offset > 0 && total_bytes > 0U) {
+                reportProgress(
+                    progress_callback,
+                    static_cast<float>(current_offset) / static_cast<float>(total_bytes),
+                    "Reading OBJ"
+                );
+            }
+        }
     }
 
     if (document.positions.empty()) {
@@ -171,6 +196,7 @@ MeshImportResult importObj(const std::filesystem::path& path) {
     }
 
     document.bounds = computeBounds(document.positions);
+    reportProgress(progress_callback, 1.0F, "Reading OBJ");
     return MeshImportResult{.document = std::move(document), .error_message = {}};
 }
 
@@ -191,11 +217,12 @@ bool isLikelyBinaryStl(std::ifstream& input) {
     return expected_size == static_cast<std::uint64_t>(size);
 }
 
-MeshImportResult importBinaryStl(const std::filesystem::path& path) {
+MeshImportResult importBinaryStl(const std::filesystem::path& path, const MeshImportProgressCallback& progress_callback) {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
         return failure("Failed to open STL file.");
     }
+    reportProgress(progress_callback, 0.0F, "Reading binary STL");
 
     MeshDocument document;
     document.source_path = path;
@@ -230,6 +257,14 @@ MeshImportResult importBinaryStl(const std::filesystem::path& path) {
         document.positions.push_back(vertices[1]);
         document.positions.push_back(vertices[2]);
         document.triangles.push_back(Triangle{.a = base_index, .b = base_index + 1U, .c = base_index + 2U});
+
+        if (((triangle_index + 1U) % 2048U) == 0U || (triangle_index + 1U) == triangle_count) {
+            reportProgress(
+                progress_callback,
+                triangle_count == 0U ? 1.0F : static_cast<float>(triangle_index + 1U) / static_cast<float>(triangle_count),
+                "Reading binary STL"
+            );
+        }
     }
 
     if (document.positions.empty()) {
@@ -237,14 +272,17 @@ MeshImportResult importBinaryStl(const std::filesystem::path& path) {
     }
 
     document.bounds = computeBounds(document.positions);
+    reportProgress(progress_callback, 1.0F, "Reading binary STL");
     return MeshImportResult{.document = std::move(document), .error_message = {}};
 }
 
-MeshImportResult importAsciiStl(const std::filesystem::path& path) {
+MeshImportResult importAsciiStl(const std::filesystem::path& path, const MeshImportProgressCallback& progress_callback) {
     std::ifstream input(path);
     if (!input) {
         return failure("Failed to open STL file.");
     }
+    const std::uintmax_t total_bytes = std::filesystem::file_size(path);
+    reportProgress(progress_callback, 0.0F, "Reading ASCII STL");
 
     MeshDocument document;
     document.source_path = path;
@@ -307,6 +345,17 @@ MeshImportResult importAsciiStl(const std::filesystem::path& path) {
 
             facet_vertices.clear();
         }
+
+        if ((line_number % 2048U) == 0U) {
+            const std::streampos current_offset = input.tellg();
+            if (current_offset > 0 && total_bytes > 0U) {
+                reportProgress(
+                    progress_callback,
+                    static_cast<float>(current_offset) / static_cast<float>(total_bytes),
+                    "Reading ASCII STL"
+                );
+            }
+        }
     }
 
     if (document.positions.empty()) {
@@ -314,35 +363,35 @@ MeshImportResult importAsciiStl(const std::filesystem::path& path) {
     }
 
     document.bounds = computeBounds(document.positions);
+    reportProgress(progress_callback, 1.0F, "Reading ASCII STL");
     return MeshImportResult{.document = std::move(document), .error_message = {}};
 }
 
-MeshImportResult importStl(const std::filesystem::path& path) {
+MeshImportResult importStl(const std::filesystem::path& path, const MeshImportProgressCallback& progress_callback) {
     std::ifstream probe(path, std::ios::binary);
     if (!probe) {
         return failure("Failed to open STL file.");
     }
 
     if (isLikelyBinaryStl(probe)) {
-        return importBinaryStl(path);
+        return importBinaryStl(path, progress_callback);
     }
 
-    return importAsciiStl(path);
+    return importAsciiStl(path, progress_callback);
 }
 
 }  // namespace
 
-MeshImportResult importMeshFromFile(const std::filesystem::path& path) {
+MeshImportResult importMeshFromFile(const std::filesystem::path& path, const MeshImportProgressCallback& progress_callback) {
     const std::string extension = toLower(path.extension().string());
     if (extension == ".obj") {
-        return importObj(path);
+        return importObj(path, progress_callback);
     }
     if (extension == ".stl") {
-        return importStl(path);
+        return importStl(path, progress_callback);
     }
 
     return failure("Unsupported mesh format. Supported formats: OBJ and STL.");
 }
 
 }  // namespace meshtools::io
-

@@ -513,13 +513,30 @@ ProjectArchiveSaveResult saveFailure(std::string message) {
     return ProjectArchiveSaveResult{.error_message = std::move(message)};
 }
 
+void reportProgress(
+    const ProjectArchiveLoadProgressCallback& progress_callback,
+    float progress,
+    std::string_view stage
+) {
+    if (!progress_callback) {
+        return;
+    }
+
+    progress_callback(std::clamp(progress, 0.0F, 1.0F), stage);
+}
+
 }  // namespace
 
-ProjectArchiveLoadResult loadProjectArchive(const std::filesystem::path& archive_path) {
+ProjectArchiveLoadResult loadProjectArchive(
+    const std::filesystem::path& archive_path,
+    const ProjectArchiveLoadProgressCallback& progress_callback
+) {
 #if defined(_WIN32)
+    (void)progress_callback;
     return failure("Project archives are not supported on Windows builds yet.");
 #else
     try {
+        reportProgress(progress_callback, 0.0F, "Unpacking project");
         ScopedTempDirectory temp_directory;
         const std::filesystem::path extract_root = temp_directory.path() / "extract";
         std::filesystem::create_directories(extract_root);
@@ -529,6 +546,7 @@ ProjectArchiveLoadResult loadProjectArchive(const std::filesystem::path& archive
         if (!runShellCommand(unzip_command)) {
             return failure("Failed to unpack project archive.");
         }
+        reportProgress(progress_callback, 0.15F, "Validating project");
 
         const std::optional<std::filesystem::path> project_root = locateProjectRoot(extract_root);
         if (!project_root.has_value()) {
@@ -549,6 +567,7 @@ ProjectArchiveLoadResult loadProjectArchive(const std::filesystem::path& archive
             return failure("Project archive is missing checksum in config.ini.");
         }
 
+        reportProgress(progress_callback, 0.3F, "Verifying project checksum");
         const std::string actual_checksum = computeProjectChecksum(*project_root);
         if (actual_checksum != *expected_checksum) {
             return failure("Project checksum mismatch. The project may have been modified outside MeshTools.");
@@ -570,7 +589,13 @@ ProjectArchiveLoadResult loadProjectArchive(const std::filesystem::path& archive
             return failure("Project mesh resource is missing: " + *mesh_resource_path + '.');
         }
 
-        MeshImportResult import_result = importMeshFromFile(resolved_mesh_path);
+        reportProgress(progress_callback, 0.45F, "Loading mesh resource");
+        MeshImportResult import_result = importMeshFromFile(
+            resolved_mesh_path,
+            [&progress_callback](float progress, std::string_view stage) {
+                reportProgress(progress_callback, 0.45F + (progress * 0.4F), stage);
+            }
+        );
         if (!import_result.succeeded()) {
             return failure("Failed to load project mesh: " + import_result.error_message);
         }
@@ -597,11 +622,15 @@ ProjectArchiveLoadResult loadProjectArchive(const std::filesystem::path& archive
             }
         }
 
-        return ProjectArchiveLoadResult{
+        reportProgress(progress_callback, 0.95F, "Loading project metadata");
+
+        ProjectArchiveLoadResult result{
             .document = std::move(import_result.document),
             .log_messages = splitLines(readTextFile(*project_root / kProjectLogFileName)),
             .error_message = {},
         };
+        reportProgress(progress_callback, 1.0F, "Loading project metadata");
+        return result;
     } catch (const std::exception& exception) {
         return failure(exception.what());
     }

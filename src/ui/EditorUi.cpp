@@ -1,6 +1,8 @@
 #include "meshtools/ui/EditorUi.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #include "meshtools/ui/ViewportCommands.h"
 
@@ -152,8 +154,23 @@ void EditorUi::drawFileLoadDialog(const EditorUiState& state) {
         }
         if (state.file_load_dialog.show_progress_bar) {
             ImGui::Spacing();
-            const float progress = std::fmod(static_cast<float>(ImGui::GetTime()) * 0.35F, 1.0F);
-            ImGui::ProgressBar(progress, ImVec2(320.0F, 0.0F), "Loading...");
+            if (state.file_load_dialog.determinate_progress) {
+                char overlay[32];
+                std::snprintf(
+                    overlay,
+                    sizeof(overlay),
+                    "%.0f%%",
+                    std::clamp(state.file_load_dialog.progress, 0.0F, 1.0F) * 100.0F
+                );
+                ImGui::ProgressBar(
+                    std::clamp(state.file_load_dialog.progress, 0.0F, 1.0F),
+                    ImVec2(320.0F, 0.0F),
+                    overlay
+                );
+            } else {
+                const float progress = std::fmod(static_cast<float>(ImGui::GetTime()) * 0.35F, 1.0F);
+                ImGui::ProgressBar(progress, ImVec2(320.0F, 0.0F), "Working...");
+            }
         }
 
         file_load_dialog_open_ = true;

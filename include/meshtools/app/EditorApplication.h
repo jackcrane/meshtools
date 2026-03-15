@@ -124,6 +124,8 @@ class EditorApplication {
     struct AsyncDocumentLoadState {
         std::mutex mutex;
         bool completed = false;
+        bool determinate_progress = false;
+        float progress = 0.0F;
         DocumentLoadOutcome outcome;
     };
 
@@ -155,6 +157,8 @@ class EditorApplication {
     struct AsyncMeshOperationState {
         std::mutex mutex;
         bool completed = false;
+        bool determinate_progress = false;
+        float progress = 0.0F;
         MeshOperationOutcome outcome;
     };
 
@@ -186,6 +190,8 @@ class EditorApplication {
     struct AsyncHistoryRestoreState {
         std::mutex mutex;
         bool completed = false;
+        bool determinate_progress = false;
+        float progress = 0.0F;
         HistoryRestoreOutcome outcome;
     };
 
@@ -202,6 +208,8 @@ class EditorApplication {
     struct AsyncDocumentTopologyPrecomputeState {
         std::mutex mutex;
         bool completed = false;
+        bool determinate_progress = false;
+        float progress = 0.0F;
         DocumentTopologyCache cache;
     };
 

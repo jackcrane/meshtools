@@ -4,6 +4,21 @@
 #include <array>
 
 namespace meshtools::mesh::operations::detail {
+namespace {
+
+void reportProgress(const std::function<void(float progress)>& progress_callback, std::size_t completed_units, std::size_t total_units) {
+    if (!progress_callback) {
+        return;
+    }
+
+    const float progress =
+        total_units == 0
+            ? 1.0F
+            : std::clamp(static_cast<float>(completed_units) / static_cast<float>(total_units), 0.0F, 1.0F);
+    progress_callback(progress);
+}
+
+}  // namespace
 
 std::vector<Vec3> normalizePositionsForTopology(const MeshDocument& document) {
     std::vector<Vec3> normalized_positions;
@@ -47,7 +62,7 @@ std::vector<std::uint32_t> uniqueSortedIndices(std::vector<std::uint32_t> indice
     return indices;
 }
 
-MeshTopology buildMeshTopology(const MeshDocument& document) {
+MeshTopology buildMeshTopology(const MeshDocument& document, const std::function<void(float progress)>& progress_callback) {
     MeshTopology topology;
     topology.point_keys.reserve(document.positions.size());
     topology.face_indices_by_point.assign(document.positions.size(), {});
@@ -56,11 +71,19 @@ MeshTopology buildMeshTopology(const MeshDocument& document) {
     topology.edge_is_explicit.reserve((document.triangles.size() * 3ULL) + document.explicit_edges.size());
     topology.explicit_edge_document_indices.reserve((document.triangles.size() * 3ULL) + document.explicit_edges.size());
     topology.edge_index_by_key.reserve((document.triangles.size() * 3ULL) + document.explicit_edges.size());
+    const std::size_t total_units =
+        document.positions.size() +
+        document.triangles.size() +
+        document.explicit_edges.size();
+    std::size_t completed_units = 0;
+    reportProgress(progress_callback, completed_units, total_units);
 
     const std::vector<Vec3> normalized_positions = normalizePositionsForTopology(document);
     for (const Vec3& position : normalized_positions) {
         topology.point_keys.push_back(makeQuantizedPositionKey(position));
     }
+    completed_units += document.positions.size();
+    reportProgress(progress_callback, completed_units, total_units);
 
     for (std::size_t face_index = 0; face_index < document.triangles.size(); ++face_index) {
         const Triangle& triangle = document.triangles[face_index];
@@ -104,11 +127,20 @@ MeshTopology buildMeshTopology(const MeshDocument& document) {
 
             topology.face_indices_by_edge[iterator->second].push_back(static_cast<std::uint32_t>(face_index));
         }
+
+        ++completed_units;
+        if (((face_index + 1U) % 2048U) == 0U || (face_index + 1U) == document.triangles.size()) {
+            reportProgress(progress_callback, completed_units, total_units);
+        }
     }
 
     for (std::size_t explicit_edge_index = 0; explicit_edge_index < document.explicit_edges.size(); ++explicit_edge_index) {
         const EdgeSegment& edge = document.explicit_edges[explicit_edge_index];
         if (edge.a >= topology.point_keys.size() || edge.b >= topology.point_keys.size()) {
+            ++completed_units;
+            if (((explicit_edge_index + 1U) % 2048U) == 0U || (explicit_edge_index + 1U) == document.explicit_edges.size()) {
+                reportProgress(progress_callback, completed_units, total_units);
+            }
             continue;
         }
 
@@ -123,8 +155,14 @@ MeshTopology buildMeshTopology(const MeshDocument& document) {
             topology.explicit_edge_document_indices.push_back(static_cast<std::uint32_t>(explicit_edge_index));
             topology.face_indices_by_edge.emplace_back();
         }
+
+        ++completed_units;
+        if (((explicit_edge_index + 1U) % 2048U) == 0U || (explicit_edge_index + 1U) == document.explicit_edges.size()) {
+            reportProgress(progress_callback, completed_units, total_units);
+        }
     }
 
+    reportProgress(progress_callback, total_units, total_units);
     return topology;
 }
 

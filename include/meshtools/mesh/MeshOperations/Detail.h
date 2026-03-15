@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <unordered_map>
@@ -91,7 +92,10 @@ struct ClosestLinePoints {
 [[nodiscard]] std::vector<Vec3> normalizePositionsForTopology(const MeshDocument& document);
 void sortAndUnique(std::vector<std::uint32_t>& indices);
 [[nodiscard]] std::vector<std::uint32_t> uniqueSortedIndices(std::vector<std::uint32_t> indices);
-[[nodiscard]] MeshTopology buildMeshTopology(const MeshDocument& document);
+[[nodiscard]] MeshTopology buildMeshTopology(
+    const MeshDocument& document,
+    const std::function<void(float progress)>& progress_callback = {}
+);
 [[nodiscard]] std::vector<std::uint32_t> collectPointsFromSelectedEdges(
     const MeshTopology& topology,
     const EntitySelection& selection

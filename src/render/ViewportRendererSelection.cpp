@@ -143,23 +143,17 @@ float modelDiagonalLength(const std::vector<mesh::Vec3>& positions) {
 }
 
 std::vector<FaceAnalysis> buildFaceAnalysis(
-    const std::vector<mesh::Vec3>& positions,
-    const std::vector<mesh::Triangle>& triangles
+    const std::vector<mesh::Vec3>& centroids,
+    const std::vector<mesh::Vec3>& normals,
+    const std::vector<float>& plane_offsets
 ) {
     std::vector<FaceAnalysis> analysis;
-    analysis.reserve(triangles.size());
-    for (const mesh::Triangle& triangle : triangles) {
-        const mesh::Vec3 centroid = detail::scale(
-            detail::add(detail::add(positions[triangle.a], positions[triangle.b]), positions[triangle.c]),
-            1.0F / 3.0F
-        );
-        const mesh::Vec3 edge_ab = detail::subtract(positions[triangle.b], positions[triangle.a]);
-        const mesh::Vec3 edge_ac = detail::subtract(positions[triangle.c], positions[triangle.a]);
-        const mesh::Vec3 normal = detail::normalize(detail::cross(edge_ab, edge_ac));
+    analysis.reserve(centroids.size());
+    for (std::size_t face_index = 0; face_index < centroids.size(); ++face_index) {
         analysis.push_back(FaceAnalysis{
-            .centroid = centroid,
-            .normal = normal,
-            .plane_offset = detail::dot(normal, centroid),
+            .centroid = centroids[face_index],
+            .normal = normals[face_index],
+            .plane_offset = plane_offsets[face_index],
         });
     }
     return analysis;
@@ -182,8 +176,17 @@ std::vector<std::uint32_t> collectPreviewFaces(
 ) {
     std::vector<std::uint32_t> preview_faces;
     preview_faces.reserve(expanded_faces.size());
+    std::vector<unsigned char> current_face_mask;
+    if (!expanded_faces.empty()) {
+        current_face_mask.assign(*std::max_element(expanded_faces.begin(), expanded_faces.end()) + 1U, 0);
+        for (const std::uint32_t face_index : current_faces) {
+            if (face_index < current_face_mask.size()) {
+                current_face_mask[face_index] = 1;
+            }
+        }
+    }
     for (const std::uint32_t face_index : expanded_faces) {
-        if (!containsIndex(current_faces, face_index)) {
+        if (face_index >= current_face_mask.size() || current_face_mask[face_index] == 0) {
             preview_faces.push_back(face_index);
         }
     }
@@ -1134,7 +1137,12 @@ ViewportRenderer::EdgeLoopSelectionResult ViewportRenderer::selectEdgeLoop() {
         return edge_index < edge_face_indices_.size() && edge_face_indices_[edge_index].size() == 1U;
     };
 
-    const std::vector<FaceAnalysis> faces = buildFaceAnalysis(normalized_positions_, normalized_triangles_);
+    ensureExpandSelectionFaceAnalysis();
+    const std::vector<FaceAnalysis> faces = buildFaceAnalysis(
+        expand_selection_face_analysis_cache_.centroids,
+        expand_selection_face_analysis_cache_.normals,
+        expand_selection_face_analysis_cache_.plane_offsets
+    );
     const float ridge_dot_limit = std::cos(kEdgeLoopRidgeMinAngleDegrees * (3.14159265358979323846F / 180.0F));
     const auto ridge_edge = [this, &faces, ridge_dot_limit](std::uint32_t edge_index) {
         if (edge_index >= edge_face_indices_.size()) {
@@ -1410,6 +1418,43 @@ SelectSimilarResult ViewportRenderer::evaluateSelectSimilar(const SelectSimilarP
     return render::evaluateSelectSimilar(topology_positions_, edges, currentSelection(), params);
 }
 
+void ViewportRenderer::ensureExpandSelectionFaceAnalysis() const {
+    if (!has_document_mesh_) {
+        expand_selection_face_analysis_cache_ = {};
+        return;
+    }
+
+    if (expand_selection_face_analysis_cache_.mesh_revision == uploaded_mesh_state_.mesh_revision &&
+        expand_selection_face_analysis_cache_.triangle_count == normalized_triangles_.size() &&
+        expand_selection_face_analysis_cache_.centroids.size() == normalized_triangles_.size() &&
+        expand_selection_face_analysis_cache_.normals.size() == normalized_triangles_.size() &&
+        expand_selection_face_analysis_cache_.plane_offsets.size() == normalized_triangles_.size()) {
+        return;
+    }
+
+    expand_selection_face_analysis_cache_.mesh_revision = uploaded_mesh_state_.mesh_revision;
+    expand_selection_face_analysis_cache_.triangle_count = normalized_triangles_.size();
+    expand_selection_face_analysis_cache_.centroids.clear();
+    expand_selection_face_analysis_cache_.normals.clear();
+    expand_selection_face_analysis_cache_.plane_offsets.clear();
+    expand_selection_face_analysis_cache_.centroids.reserve(normalized_triangles_.size());
+    expand_selection_face_analysis_cache_.normals.reserve(normalized_triangles_.size());
+    expand_selection_face_analysis_cache_.plane_offsets.reserve(normalized_triangles_.size());
+
+    for (const mesh::Triangle& triangle : normalized_triangles_) {
+        const mesh::Vec3 centroid = detail::scale(
+            detail::add(detail::add(normalized_positions_[triangle.a], normalized_positions_[triangle.b]), normalized_positions_[triangle.c]),
+            1.0F / 3.0F
+        );
+        const mesh::Vec3 edge_ab = detail::subtract(normalized_positions_[triangle.b], normalized_positions_[triangle.a]);
+        const mesh::Vec3 edge_ac = detail::subtract(normalized_positions_[triangle.c], normalized_positions_[triangle.a]);
+        const mesh::Vec3 normal = detail::normalize(detail::cross(edge_ab, edge_ac));
+        expand_selection_face_analysis_cache_.centroids.push_back(centroid);
+        expand_selection_face_analysis_cache_.normals.push_back(normal);
+        expand_selection_face_analysis_cache_.plane_offsets.push_back(detail::dot(normal, centroid));
+    }
+}
+
 ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelection(const ExpandSelectionParams& params) const {
     ExpandSelectionResult result;
     result.selection = currentSelection();
@@ -1424,7 +1469,12 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
         return result;
     }
 
-    const std::vector<FaceAnalysis> faces = buildFaceAnalysis(normalized_positions_, normalized_triangles_);
+    ensureExpandSelectionFaceAnalysis();
+    const std::vector<FaceAnalysis> faces = buildFaceAnalysis(
+        expand_selection_face_analysis_cache_.centroids,
+        expand_selection_face_analysis_cache_.normals,
+        expand_selection_face_analysis_cache_.plane_offsets
+    );
     const float model_diagonal = std::max(modelDiagonalLength(normalized_positions_), 0.0001F);
 
     switch (params.method) {
@@ -1434,6 +1484,12 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
             const float normal_alignment_tolerance =
                 std::max(params.coplanar_tolerance_percent * 0.01F, 1.0e-5F);
             std::vector<std::uint32_t> expanded_faces = selected_face_indices_;
+            std::vector<unsigned char> expanded_face_mask(faces.size(), 0);
+            for (const std::uint32_t face_index : expanded_faces) {
+                if (face_index < expanded_face_mask.size()) {
+                    expanded_face_mask[face_index] = 1;
+                }
+            }
             if (params.coplanar_select_adjacent_only) {
                 std::deque<std::uint32_t> frontier(selected_face_indices_.begin(), selected_face_indices_.end());
                 while (!frontier.empty()) {
@@ -1444,7 +1500,7 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
                     }
 
                     for (const std::uint32_t neighbor_face_index : face_neighbors_[current_face_index]) {
-                        if (neighbor_face_index >= faces.size() || containsIndex(expanded_faces, neighbor_face_index)) {
+                        if (neighbor_face_index >= faces.size() || expanded_face_mask[neighbor_face_index] != 0) {
                             continue;
                         }
 
@@ -1458,12 +1514,16 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
                             continue;
                         }
 
+                        expanded_face_mask[neighbor_face_index] = 1;
                         expanded_faces.push_back(neighbor_face_index);
                         frontier.push_back(neighbor_face_index);
                     }
                 }
             } else {
                 for (std::size_t face_index = 0; face_index < faces.size(); ++face_index) {
+                    if (expanded_face_mask[face_index] != 0) {
+                        continue;
+                    }
                     for (const std::uint32_t selected_face_index : selected_face_indices_) {
                         if (selected_face_index >= faces.size()) {
                             continue;
@@ -1479,6 +1539,7 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
                             continue;
                         }
 
+                        expanded_face_mask[face_index] = 1;
                         expanded_faces.push_back(static_cast<std::uint32_t>(face_index));
                         break;
                     }
@@ -1496,6 +1557,12 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
             const float min_dot = std::cos(max_angle_radians);
 
             std::vector<std::uint32_t> expanded_faces = selected_face_indices_;
+            std::vector<unsigned char> expanded_face_mask(faces.size(), 0);
+            for (const std::uint32_t face_index : expanded_faces) {
+                if (face_index < expanded_face_mask.size()) {
+                    expanded_face_mask[face_index] = 1;
+                }
+            }
             std::deque<std::uint32_t> frontier(selected_face_indices_.begin(), selected_face_indices_.end());
             while (!frontier.empty()) {
                 const std::uint32_t current_face_index = frontier.front();
@@ -1505,7 +1572,7 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
                 }
 
                 for (const std::uint32_t neighbor_face_index : face_neighbors_[current_face_index]) {
-                    if (neighbor_face_index >= faces.size() || containsIndex(expanded_faces, neighbor_face_index)) {
+                    if (neighbor_face_index >= faces.size() || expanded_face_mask[neighbor_face_index] != 0) {
                         continue;
                     }
 
@@ -1514,6 +1581,7 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
                         continue;
                     }
 
+                    expanded_face_mask[neighbor_face_index] = 1;
                     expanded_faces.push_back(neighbor_face_index);
                     frontier.push_back(neighbor_face_index);
                 }
@@ -1550,13 +1618,23 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
 
             if (point_target.valid) {
                 std::vector<std::uint32_t> expanded_faces = selected_face_indices_;
+                std::vector<unsigned char> expanded_face_mask(faces.size(), 0);
+                for (const std::uint32_t face_index : expanded_faces) {
+                    if (face_index < expanded_face_mask.size()) {
+                        expanded_face_mask[face_index] = 1;
+                    }
+                }
                 for (std::size_t face_index = 0; face_index < faces.size(); ++face_index) {
+                    if (expanded_face_mask[face_index] != 0) {
+                        continue;
+                    }
                     if (pointMatchesNormalTarget(
                             faces[face_index],
                             point_target.point,
                             tolerance,
                             params.intersecting_include_inverse_normals
                         )) {
+                        expanded_face_mask[face_index] = 1;
                         expanded_faces.push_back(static_cast<std::uint32_t>(face_index));
                     }
                 }
@@ -1598,7 +1676,16 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
             }
 
             std::vector<std::uint32_t> expanded_faces = selected_face_indices_;
+            std::vector<unsigned char> expanded_face_mask(faces.size(), 0);
+            for (const std::uint32_t face_index : expanded_faces) {
+                if (face_index < expanded_face_mask.size()) {
+                    expanded_face_mask[face_index] = 1;
+                }
+            }
             for (std::size_t face_index = 0; face_index < faces.size(); ++face_index) {
+                if (expanded_face_mask[face_index] != 0) {
+                    continue;
+                }
                 if (lineMatchesNormalTarget(
                         faces[face_index],
                         line_target.point,
@@ -1606,6 +1693,7 @@ ViewportRenderer::ExpandSelectionResult ViewportRenderer::evaluateExpandSelectio
                         tolerance,
                         params.intersecting_include_inverse_normals
                     )) {
+                    expanded_face_mask[face_index] = 1;
                     expanded_faces.push_back(static_cast<std::uint32_t>(face_index));
                 }
             }

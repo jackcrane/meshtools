@@ -209,6 +209,7 @@ class ViewportRenderer {
     void syncMesh(const mesh::MeshDocument* document, UpAxis up_axis);
     void uploadGeometry(const std::vector<Vertex>& vertices, const std::vector<std::uint32_t>& indices);
     void updateHighlightBuffers();
+    void ensureExpandSelectionFaceAnalysis() const;
 
     std::uint32_t framebuffer_ = 0;
     std::uint32_t color_texture_ = 0;
@@ -258,6 +259,14 @@ class ViewportRenderer {
     std::vector<std::uint32_t> selected_point_indices_;
     std::vector<std::uint32_t> preview_face_indices_;
     std::vector<std::uint32_t> preview_edge_indices_;
+    struct ExpandSelectionFaceAnalysisCache {
+        std::uint64_t mesh_revision = 0;
+        std::size_t triangle_count = 0;
+        std::vector<mesh::Vec3> centroids;
+        std::vector<mesh::Vec3> normals;
+        std::vector<float> plane_offsets;
+    };
+    mutable ExpandSelectionFaceAnalysisCache expand_selection_face_analysis_cache_{};
     std::optional<std::uint32_t> face_selection_anchor_;
     std::optional<std::uint32_t> edge_selection_anchor_;
     struct EdgeLoopCycleState {

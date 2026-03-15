@@ -98,6 +98,7 @@ class ViewportPane {
     bool expand_selection_dialog_open_ = false;
     bool expand_selection_dialog_pending_open_ = false;
     bool close_expand_selection_dialog_ = false;
+    bool expand_selection_preview_dirty_ = false;
     EditorUiActions::ExpandSelectionConfig expand_selection_config_{};
     bool modify_delete_dialog_open_ = false;
     bool modify_delete_dialog_pending_open_ = false;

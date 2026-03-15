@@ -1,9 +1,11 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "meshtools/mesh/MeshDocument.h"
@@ -11,6 +13,8 @@
 namespace meshtools::io {
 
 inline constexpr const char* kProjectFormatVersion = "0.0.1";
+
+using ProjectArchiveLoadProgressCallback = std::function<void(float progress, std::string_view stage)>;
 
 struct ProjectArchiveLoadResult {
     std::optional<mesh::MeshDocument> document;
@@ -35,7 +39,10 @@ struct ProjectArchiveSaveResult {
     }
 };
 
-ProjectArchiveLoadResult loadProjectArchive(const std::filesystem::path& archive_path);
+ProjectArchiveLoadResult loadProjectArchive(
+    const std::filesystem::path& archive_path,
+    const ProjectArchiveLoadProgressCallback& progress_callback = {}
+);
 ProjectArchiveSaveResult saveProjectArchive(
     const std::filesystem::path& archive_path,
     const ProjectArchiveSaveInput& input

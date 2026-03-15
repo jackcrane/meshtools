@@ -484,6 +484,7 @@ void ViewportPane::draw(
 void ViewportPane::openExpandSelectionDialog() {
     expand_selection_dialog_pending_open_ = true;
     close_expand_selection_dialog_ = false;
+    expand_selection_preview_dirty_ = true;
 }
 
 void ViewportPane::openSelectSimilarDialog() {
@@ -574,6 +575,7 @@ void ViewportPane::drawExpandSelectionDialog(const EditorUiState& state, EditorU
         ImGui::OpenPopup(kExpandSelectionDialogName);
         expand_selection_dialog_open_ = true;
         expand_selection_dialog_pending_open_ = false;
+        expand_selection_preview_dirty_ = true;
     }
 
     if (!expand_selection_dialog_open_ && !ImGui::IsPopupOpen(kExpandSelectionDialogName)) {
@@ -610,6 +612,8 @@ void ViewportPane::drawExpandSelectionDialog(const EditorUiState& state, EditorU
             "Intersecting Normals",
         };
 
+        bool config_changed = false;
+
         int selected_method = 0;
         switch (expand_selection_config_.method) {
             case ExpandSelectionMethod::Coplanar:
@@ -635,40 +639,51 @@ void ViewportPane::drawExpandSelectionDialog(const EditorUiState& state, EditorU
                     expand_selection_config_.method = ExpandSelectionMethod::IntersectingNormals;
                     break;
             }
+            config_changed = true;
         }
 
         switch (expand_selection_config_.method) {
             case ExpandSelectionMethod::Coplanar:
-                ImGui::Checkbox("Include Parallel", &expand_selection_config_.coplanar_include_parallel);
-                ImGui::Checkbox("Select adjacent only", &expand_selection_config_.coplanar_select_adjacent_only);
-                ImGui::InputFloat("Tolerance (%)", &expand_selection_config_.coplanar_tolerance_percent, 0.001F, 0.01F, "%.4f");
-                expand_selection_config_.coplanar_tolerance_percent =
-                    std::max(expand_selection_config_.coplanar_tolerance_percent, 0.0F);
+                config_changed = ImGui::Checkbox("Include Parallel", &expand_selection_config_.coplanar_include_parallel) || config_changed;
+                config_changed = ImGui::Checkbox("Select adjacent only", &expand_selection_config_.coplanar_select_adjacent_only) || config_changed;
+                if (ImGui::InputFloat("Tolerance (%)", &expand_selection_config_.coplanar_tolerance_percent, 0.001F, 0.01F, "%.4f")) {
+                    expand_selection_config_.coplanar_tolerance_percent =
+                        std::max(expand_selection_config_.coplanar_tolerance_percent, 0.0F);
+                    config_changed = true;
+                }
                 break;
             case ExpandSelectionMethod::Adjacent:
-                ImGui::InputFloat("Max angle", &expand_selection_config_.adjacent_max_angle_degrees, 1.0F, 5.0F, "%.2f");
-                expand_selection_config_.adjacent_max_angle_degrees =
-                    std::clamp(expand_selection_config_.adjacent_max_angle_degrees, 0.0F, 180.0F);
+                if (ImGui::InputFloat("Max angle", &expand_selection_config_.adjacent_max_angle_degrees, 1.0F, 5.0F, "%.2f")) {
+                    expand_selection_config_.adjacent_max_angle_degrees =
+                        std::clamp(expand_selection_config_.adjacent_max_angle_degrees, 0.0F, 180.0F);
+                    config_changed = true;
+                }
                 break;
             case ExpandSelectionMethod::IntersectingNormals:
-                ImGui::Checkbox("Include inverse normals", &expand_selection_config_.intersecting_include_inverse_normals);
-                ImGui::InputFloat("Tolerance", &expand_selection_config_.intersecting_tolerance, 0.01F, 0.05F, "%.3f");
-                expand_selection_config_.intersecting_tolerance =
-                    std::max(expand_selection_config_.intersecting_tolerance, 0.0001F);
-                if (!state.expand_selection_feedback.linear_intersection_enabled) {
-                    expand_selection_config_.intersecting_allow_linear_intersection = false;
+                config_changed =
+                    ImGui::Checkbox("Include inverse normals", &expand_selection_config_.intersecting_include_inverse_normals) ||
+                    config_changed;
+                if (ImGui::InputFloat("Tolerance", &expand_selection_config_.intersecting_tolerance, 0.01F, 0.05F, "%.3f")) {
+                    expand_selection_config_.intersecting_tolerance =
+                        std::max(expand_selection_config_.intersecting_tolerance, 0.0001F);
+                    config_changed = true;
                 }
-                ImGui::BeginDisabled(!state.expand_selection_feedback.linear_intersection_enabled);
-                ImGui::Checkbox("Allow linear intersection", &expand_selection_config_.intersecting_allow_linear_intersection);
-                ImGui::EndDisabled();
+                config_changed =
+                    ImGui::Checkbox("Allow linear intersection", &expand_selection_config_.intersecting_allow_linear_intersection) ||
+                    config_changed;
                 break;
         }
 
-        if (actions != nullptr) {
+        if (config_changed) {
+            expand_selection_preview_dirty_ = true;
+        }
+
+        if (expand_selection_preview_dirty_ && actions != nullptr) {
             actions->request_expand_selection = EditorUiActions::ExpandSelectionRequest{
                 .config = expand_selection_config_,
                 .intent = EditorUiActions::ExpandSelectionRequest::Intent::Preview,
             };
+            expand_selection_preview_dirty_ = false;
         }
 
         ImGui::Spacing();
@@ -678,6 +693,8 @@ void ViewportPane::drawExpandSelectionDialog(const EditorUiState& state, EditorU
                 state.expand_selection_feedback.preview_added_face_count,
                 state.expand_selection_feedback.preview_total_count
             );
+        } else if (actions != nullptr && actions->request_expand_selection.has_value()) {
+            ImGui::TextUnformatted("Refreshing preview...");
         } else if (!state.expand_selection_feedback.unavailable_reasons.empty()) {
             ImGui::SeparatorText("Unavailable");
             for (const std::string& reason : state.expand_selection_feedback.unavailable_reasons) {

@@ -102,6 +102,17 @@ bool documentTopologyCacheMatches(
            cache.explicit_edge_count == document.explicit_edges.size();
 }
 
+template <typename State>
+void setAsyncProgress(const std::shared_ptr<State>& state, float progress, bool determinate_progress) {
+    if (!state) {
+        return;
+    }
+
+    const std::scoped_lock lock(state->mutex);
+    state->progress = std::clamp(progress, 0.0F, 1.0F);
+    state->determinate_progress = determinate_progress;
+}
+
 render::ViewportRenderer::ExpandSelectionParams makeExpandSelectionParams(
     const ui::EditorUiActions::ExpandSelectionConfig& config
 ) {
@@ -298,6 +309,26 @@ int EditorApplication::run() {
             .duration_ms = modify_project_availability_ms,
         });
 
+        bool file_load_dialog_determinate_progress = false;
+        float file_load_dialog_progress = 0.0F;
+        if (pending_document_load_.has_value()) {
+            const std::scoped_lock lock(pending_document_load_->state->mutex);
+            file_load_dialog_determinate_progress = pending_document_load_->state->determinate_progress;
+            file_load_dialog_progress = pending_document_load_->state->progress;
+        } else if (pending_mesh_operation_.has_value()) {
+            const std::scoped_lock lock(pending_mesh_operation_->state->mutex);
+            file_load_dialog_determinate_progress = pending_mesh_operation_->state->determinate_progress;
+            file_load_dialog_progress = pending_mesh_operation_->state->progress;
+        } else if (pending_history_restore_.has_value()) {
+            const std::scoped_lock lock(pending_history_restore_->state->mutex);
+            file_load_dialog_determinate_progress = pending_history_restore_->state->determinate_progress;
+            file_load_dialog_progress = pending_history_restore_->state->progress;
+        } else if (pending_document_topology_precompute_.has_value()) {
+            const std::scoped_lock lock(pending_document_topology_precompute_->state->mutex);
+            file_load_dialog_determinate_progress = pending_document_topology_precompute_->state->determinate_progress;
+            file_load_dialog_progress = pending_document_topology_precompute_->state->progress;
+        }
+
         const ui::EditorUiState ui_state{
             .modify_delete_availability = modify_delete_availability,
             .modify_create_face_availability = modify_create_face_availability,
@@ -346,6 +377,8 @@ int EditorApplication::run() {
                     pending_mesh_operation_.has_value() ||
                     pending_history_restore_.has_value() ||
                     pending_document_topology_precompute_.has_value(),
+                .determinate_progress = file_load_dialog_determinate_progress,
+                .progress = file_load_dialog_progress,
                 .title =
                     pending_document_load_.has_value()
                         ? pending_document_load_->kind == PendingDocumentLoad::Kind::Project
@@ -589,20 +622,32 @@ void EditorApplication::beginDocumentLoad(const std::filesystem::path& path) {
     const PendingDocumentLoad::Kind kind = pending_load.kind;
     const std::filesystem::path load_path = pending_load.path;
     const std::shared_ptr<AsyncDocumentLoadState> state = pending_load.state;
+    setAsyncProgress(state, 0.0F, false);
     pending_load.worker = std::jthread([state, kind, load_path]() {
         DocumentLoadOutcome outcome;
         if (kind == PendingDocumentLoad::Kind::Project) {
-            io::ProjectArchiveLoadResult result = io::loadProjectArchive(load_path);
+            io::ProjectArchiveLoadResult result = io::loadProjectArchive(
+                load_path,
+                [state](float progress, std::string_view) {
+                    setAsyncProgress(state, progress, true);
+                }
+            );
             outcome.document = std::move(result.document);
             outcome.log_messages = std::move(result.log_messages);
             outcome.error_message = std::move(result.error_message);
         } else {
-            io::MeshImportResult result = io::importMeshFromFile(load_path);
+            io::MeshImportResult result = io::importMeshFromFile(
+                load_path,
+                [state](float progress, std::string_view) {
+                    setAsyncProgress(state, progress, true);
+                }
+            );
             outcome.document = std::move(result.document);
             outcome.error_message = std::move(result.error_message);
         }
 
         const std::scoped_lock lock(state->mutex);
+        state->progress = 1.0F;
         state->outcome = std::move(outcome);
         state->completed = true;
     });
@@ -693,6 +738,7 @@ void EditorApplication::startPendingMeshOperation() {
     pending_mesh_operation_->started = true;
     const PendingMeshOperation::Kind kind = pending_mesh_operation_->kind;
     const std::shared_ptr<AsyncMeshOperationState> state = pending_mesh_operation_->state;
+    setAsyncProgress(state, 0.0F, false);
     mesh::MeshDocument document_snapshot = std::move(pending_mesh_operation_->document_snapshot);
     mesh::EntitySelection selection = pending_mesh_operation_->selection;
     const mesh::ModifyProjectOptions project_options = pending_mesh_operation_->project_options;
@@ -773,6 +819,7 @@ void EditorApplication::startPendingMeshOperation() {
             }
 
             const std::scoped_lock lock(state->mutex);
+            state->progress = 1.0F;
             state->outcome = std::move(outcome);
             state->completed = true;
         }
@@ -858,6 +905,7 @@ void EditorApplication::startPendingHistoryRestore() {
     const DocumentHistoryRestoreTarget target = pending_history_restore_->target;
     const std::string action = pending_history_restore_->action;
     const std::shared_ptr<AsyncHistoryRestoreState> state = pending_history_restore_->state;
+    setAsyncProgress(state, 0.0F, false);
     pending_history_restore_->worker = std::jthread(
         [state, target, action]() mutable {
             HistoryRestoreOutcome outcome;
@@ -866,6 +914,7 @@ void EditorApplication::startPendingHistoryRestore() {
             outcome.action = std::move(action);
 
             const std::scoped_lock lock(state->mutex);
+            state->progress = 1.0F;
             state->outcome = std::move(outcome);
             state->completed = true;
         }
@@ -942,6 +991,7 @@ void EditorApplication::startPendingDocumentTopologyPrecompute() {
     pending_document_topology_precompute_->started = true;
     mesh::MeshDocument document_snapshot = active_document_.value();
     const std::shared_ptr<AsyncDocumentTopologyPrecomputeState> state = pending_document_topology_precompute_->state;
+    setAsyncProgress(state, 0.0F, true);
     pending_document_topology_precompute_->worker =
         std::jthread([state, document_snapshot = std::move(document_snapshot)]() mutable {
             DocumentTopologyCache cache;
@@ -951,9 +1001,15 @@ void EditorApplication::startPendingDocumentTopologyPrecompute() {
             cache.vertex_count = document_snapshot.positions.size();
             cache.triangle_count = document_snapshot.triangles.size();
             cache.explicit_edge_count = document_snapshot.explicit_edges.size();
-            cache.topology = mesh::operations::detail::buildMeshTopology(document_snapshot);
+            cache.topology = mesh::operations::detail::buildMeshTopology(
+                document_snapshot,
+                [state](float progress) {
+                    setAsyncProgress(state, progress, true);
+                }
+            );
 
             const std::scoped_lock lock(state->mutex);
+            state->progress = 1.0F;
             state->cache = std::move(cache);
             state->completed = true;
         });

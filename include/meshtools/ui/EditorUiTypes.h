@@ -55,6 +55,8 @@ struct EditorUiState {
     struct FileLoadDialog {
         bool visible = false;
         bool show_progress_bar = false;
+        bool determinate_progress = false;
+        float progress = 0.0F;
         std::string title;
         std::string message;
     };
