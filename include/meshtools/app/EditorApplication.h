@@ -1,8 +1,11 @@
 #pragma once
 
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "meshtools/mesh/MeshDocument.h"
@@ -50,14 +53,33 @@ class EditorApplication {
         DocumentHistorySnapshot snapshot;
     };
 
+    struct ModifyAvailabilityCache {
+        bool valid = false;
+        std::filesystem::path source_path;
+        std::uint64_t mesh_revision = 0;
+        std::size_t vertex_count = 0;
+        std::size_t triangle_count = 0;
+        std::size_t explicit_edge_count = 0;
+        mesh::EntitySelection selection;
+        mesh::ModifyDeleteAvailability modify_delete_availability;
+        mesh::ModifyCreateFaceAvailability modify_create_face_availability;
+        mesh::ModifyProjectAvailability modify_project_availability;
+    };
+
   private:
+    struct DocumentLoadOutcome;
+    struct AsyncDocumentLoadState;
+    struct PendingDocumentLoad;
+
     void appendLog(std::string origin, std::string message);
     void openDocument();
     void openPath(const std::filesystem::path& path);
     void saveProject();
     void saveProjectAs();
-    void loadMeshDocument(const std::filesystem::path& path);
-    void loadProjectDocument(const std::filesystem::path& path);
+    void beginDocumentLoad(const std::filesystem::path& path);
+    void pollPendingDocumentLoad();
+    void applyLoadedMeshDocument(DocumentLoadOutcome outcome);
+    void applyLoadedProjectDocument(const std::filesystem::path& path, DocumentLoadOutcome outcome);
     void applyViewportCameraInput(const ui::ViewportCameraInput& input);
     void handleProjectActions(const ui::EditorUiActions& actions);
     void handleEntitySetActions(const ui::EditorUiActions& actions);
@@ -94,6 +116,31 @@ class EditorApplication {
     [[nodiscard]] std::optional<std::size_t> historyNodeIndexById(std::size_t node_id) const;
     [[nodiscard]] std::string makeDefaultEntitySetName() const;
 
+    struct DocumentLoadOutcome {
+        std::optional<mesh::MeshDocument> document;
+        std::vector<std::string> log_messages;
+        std::string error_message;
+    };
+
+    struct AsyncDocumentLoadState {
+        std::mutex mutex;
+        bool completed = false;
+        DocumentLoadOutcome outcome;
+    };
+
+    struct PendingDocumentLoad {
+        enum class Kind {
+            Mesh,
+            Project,
+        };
+
+        Kind kind = Kind::Mesh;
+        std::filesystem::path path;
+        bool show_dialog = false;
+        std::shared_ptr<AsyncDocumentLoadState> state;
+        std::jthread worker;
+    };
+
     AppConfig config_;
     platform::GlfwWindow window_;
     render::ViewportRenderer viewport_renderer_;
@@ -104,10 +151,13 @@ class EditorApplication {
     std::vector<std::string> log_messages_;
     std::vector<std::string> expand_selection_feedback_reasons_;
     std::vector<std::string> select_similar_feedback_reasons_;
+    std::vector<ui::EditorUiState::TimedTask> frame_performance_tasks_;
     ui::EditorUiState::ExpandSelectionFeedback expand_selection_feedback_{};
     ui::EditorUiState::SelectSimilarFeedback select_similar_feedback_{};
+    ModifyAvailabilityCache modify_availability_cache_{};
     ui::ViewportCameraInput pending_viewport_camera_input_;
     std::optional<mesh::EntitySelection> pending_renderer_selection_;
+    std::optional<PendingDocumentLoad> pending_document_load_;
     std::vector<DocumentHistoryNode> document_history_;
     std::optional<std::size_t> current_history_index_;
     std::size_t next_history_node_id_ = 1;

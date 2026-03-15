@@ -280,6 +280,13 @@ void SettingsWindow::draw(
                     std::to_string(graphics_quality_settings.render_resolution_percent) + "%.",
             });
         }
+        if (ImGui::Checkbox("Debug Performance", &graphics_quality_settings.debug_performance) && actions != nullptr) {
+            actions->event_logs.push_back(EditorUiLogEvent{
+                .origin = "SETTINGS",
+                .message = std::string("Debug Performance ") +
+                    (graphics_quality_settings.debug_performance ? "enabled." : "disabled."),
+            });
+        }
     } else if (selected_section_ == kFileImportSection) {
         ImGui::TextUnformatted("File import");
         ImGui::Separator();

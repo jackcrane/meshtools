@@ -31,12 +31,14 @@ class EditorUi {
     [[nodiscard]] const ImVec4& clearColor() const;
     [[nodiscard]] const FileImportSettings& fileImportSettings() const;
     [[nodiscard]] const SelectionFilters& selectionFilters() const;
+    [[nodiscard]] const GraphicsQualitySettings& graphicsQualitySettings() const;
     [[nodiscard]] const ViewportDisplaySettings& viewportDisplaySettings() const;
     [[nodiscard]] const render::ViewportRenderer::ThemeColors& viewportThemeColors() const;
     [[nodiscard]] ImVec2 viewportRenderSize() const;
     [[nodiscard]] ImVec2 viewportRenderTargetSize() const;
 
   private:
+    void drawFileLoadDialog(const EditorUiState& state);
     void handleGlobalShortcuts(EditorUiActions* actions) const;
     void triggerShortcutAction(ShortcutCommand action, const EditorUiState& state, EditorUiActions* actions);
     SelectionFilters selection_filters_{};
@@ -51,6 +53,7 @@ class EditorUi {
     ViewportPane viewport_pane_;
     SettingsWindow settings_window_;
     SequentialShortcutController sequential_shortcuts_;
+    bool file_load_dialog_open_ = false;
 };
 
 }  // namespace meshtools::ui

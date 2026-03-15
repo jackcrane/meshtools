@@ -115,6 +115,17 @@ class ViewportRenderer {
         float target_z = 0.0F;
     };
 
+    struct FrameTiming {
+        float total_render_ms = 0.0F;
+        float framebuffer_setup_ms = 0.0F;
+        float mesh_sync_ms = 0.0F;
+        float shaded_pass_ms = 0.0F;
+        float wireframe_pass_ms = 0.0F;
+        float point_pass_ms = 0.0F;
+        float highlight_pass_ms = 0.0F;
+        float axis_pass_ms = 0.0F;
+    };
+
     struct Edge {
         std::uint32_t a = 0;
         std::uint32_t b = 0;
@@ -161,6 +172,7 @@ class ViewportRenderer {
     [[nodiscard]] int textureWidth() const;
     [[nodiscard]] int textureHeight() const;
     [[nodiscard]] const CameraState& camera() const;
+    [[nodiscard]] const FrameTiming& lastFrameTiming() const;
     [[nodiscard]] const SelectionSummary& selectionSummary() const;
 
   private:
@@ -255,6 +267,7 @@ class ViewportRenderer {
         std::size_t selected_candidate_index = 0;
     } edge_loop_cycle_;
     SelectionSummary selection_summary_{};
+    FrameTiming last_frame_timing_{};
     bool has_document_mesh_ = false;
 };
 

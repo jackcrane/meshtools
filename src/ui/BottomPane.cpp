@@ -77,6 +77,17 @@ void BottomPane::draw(const EditorUiState& state) {
             ImGui::Text("Frame time: %.3f ms", frame_time_ms);
             ImGui::Text("FPS: %.1f", io.Framerate);
             ImGui::Text("Display size: %.0f x %.0f", io.DisplaySize.x, io.DisplaySize.y);
+            if (state.show_performance_tasks) {
+                ImGui::Spacing();
+                ImGui::TextUnformatted("Frame task times");
+                if (state.performance_tasks.empty()) {
+                    ImGui::TextDisabled("No timing data captured.");
+                } else {
+                    for (const EditorUiState::TimedTask& task : state.performance_tasks) {
+                        ImGui::BulletText("%s: %.3f ms", task.label.c_str(), task.duration_ms);
+                    }
+                }
+            }
             ImGui::EndTabItem();
         }
 

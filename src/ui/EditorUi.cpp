@@ -1,9 +1,13 @@
 #include "meshtools/ui/EditorUi.h"
 
+#include <cmath>
+
 #include "meshtools/ui/ViewportCommands.h"
 
 namespace meshtools::ui {
 namespace {
+
+constexpr const char* kFileLoadDialogName = "Loading File";
 
 bool isCmdOrCtrlHeld(const ImGuiIO& io) {
 #if defined(__APPLE__)
@@ -115,8 +119,48 @@ EditorUiActions EditorUi::draw(const EditorUiState& state) {
     sequential_shortcuts_.drawMenu([this, &state, &actions](ShortcutCommand command) {
         triggerShortcutAction(command, state, &actions);
     });
+    drawFileLoadDialog(state);
 
     return actions;
+}
+
+void EditorUi::drawFileLoadDialog(const EditorUiState& state) {
+    if (state.file_load_dialog.visible) {
+        ImGui::OpenPopup(kFileLoadDialogName);
+        file_load_dialog_open_ = true;
+    }
+
+    if (!file_load_dialog_open_ && !ImGui::IsPopupOpen(kFileLoadDialogName)) {
+        return;
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5F, 0.5F));
+    if (ImGui::BeginPopupModal(kFileLoadDialogName, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (!state.file_load_dialog.visible) {
+            ImGui::CloseCurrentPopup();
+            file_load_dialog_open_ = false;
+            ImGui::EndPopup();
+            return;
+        }
+
+        if (!state.file_load_dialog.title.empty()) {
+            ImGui::TextUnformatted(state.file_load_dialog.title.c_str());
+        }
+        if (!state.file_load_dialog.message.empty()) {
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", state.file_load_dialog.message.c_str());
+        }
+        if (state.file_load_dialog.show_progress_bar) {
+            ImGui::Spacing();
+            const float progress = std::fmod(static_cast<float>(ImGui::GetTime()) * 0.35F, 1.0F);
+            ImGui::ProgressBar(progress, ImVec2(320.0F, 0.0F), "Loading...");
+        }
+
+        file_load_dialog_open_ = true;
+        ImGui::EndPopup();
+    }
+
+    file_load_dialog_open_ = state.file_load_dialog.visible && ImGui::IsPopupOpen(kFileLoadDialogName);
 }
 
 void EditorUi::handleGlobalShortcuts(EditorUiActions* actions) const {
@@ -161,6 +205,10 @@ const FileImportSettings& EditorUi::fileImportSettings() const {
 
 const SelectionFilters& EditorUi::selectionFilters() const {
     return selection_filters_;
+}
+
+const GraphicsQualitySettings& EditorUi::graphicsQualitySettings() const {
+    return graphics_quality_settings_;
 }
 
 const ViewportDisplaySettings& EditorUi::viewportDisplaySettings() const {

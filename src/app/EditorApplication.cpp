@@ -7,7 +7,9 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <sstream>
+#include <thread>
 #include <utility>
 
 #include "meshtools/io/MeshImporter.h"
@@ -22,6 +24,13 @@
 namespace meshtools::app {
 
 namespace {
+
+template <typename Func>
+float measureMilliseconds(Func&& func) {
+    const auto start = std::chrono::steady_clock::now();
+    std::forward<Func>(func)();
+    return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
 
 std::string makeTimestamp() {
     const auto now = std::chrono::system_clock::now();
@@ -83,6 +92,26 @@ void normalizeEntitySelection(mesh::EntitySelection& selection) {
 void appendUniqueIndices(std::vector<std::uint32_t>& target, const std::vector<std::uint32_t>& source) {
     target.insert(target.end(), source.begin(), source.end());
     sortAndUnique(target);
+}
+
+bool selectionsEqual(const mesh::EntitySelection& left, const mesh::EntitySelection& right) {
+    return left.edge_indices == right.edge_indices &&
+           left.face_indices == right.face_indices &&
+           left.point_indices == right.point_indices;
+}
+
+bool modifyAvailabilityCacheMatches(
+    const EditorApplication::ModifyAvailabilityCache& cache,
+    const mesh::MeshDocument& document,
+    const mesh::EntitySelection& selection
+) {
+    return cache.valid &&
+           cache.source_path == document.source_path &&
+           cache.mesh_revision == document.mesh_revision &&
+           cache.vertex_count == document.positions.size() &&
+           cache.triangle_count == document.triangles.size() &&
+           cache.explicit_edge_count == document.explicit_edges.size() &&
+           selectionsEqual(cache.selection, selection);
 }
 
 EditorApplication::EditableDocumentState makeEditableDocumentState(const mesh::MeshDocument& document) {
@@ -157,6 +186,7 @@ EditorApplication::EditorApplication(AppConfig config)
 int EditorApplication::run() {
     while (!window_.shouldClose()) {
         window_.pollEvents();
+        pollPendingDocumentLoad();
 
         const platform::NativeMenuActions menu_actions = platform::consumePendingNativeMenuActions();
         if (menu_actions.open_document) {
@@ -203,25 +233,106 @@ int EditorApplication::run() {
         }
         editor_ui_.setViewportTexture(viewport_renderer_.textureId());
 
+        const mesh::EntitySelection current_selection = viewport_renderer_.currentSelection();
+        mesh::ModifyDeleteAvailability modify_delete_availability;
+        mesh::ModifyCreateFaceAvailability modify_create_face_availability;
+        mesh::ModifyProjectAvailability modify_project_availability;
+        float modify_delete_availability_ms = 0.0F;
+        float modify_create_face_availability_ms = 0.0F;
+        float modify_project_availability_ms = 0.0F;
+        if (active_document_) {
+            if (modifyAvailabilityCacheMatches(modify_availability_cache_, active_document_.value(), current_selection)) {
+                modify_delete_availability = modify_availability_cache_.modify_delete_availability;
+                modify_create_face_availability = modify_availability_cache_.modify_create_face_availability;
+                modify_project_availability = modify_availability_cache_.modify_project_availability;
+            } else {
+                modify_delete_availability_ms = measureMilliseconds([&]() {
+                    modify_delete_availability =
+                        mesh::computeModifyDeleteAvailability(active_document_.value(), current_selection);
+                });
+                modify_create_face_availability_ms = measureMilliseconds([&]() {
+                    modify_create_face_availability =
+                        mesh::computeModifyCreateFaceAvailability(active_document_.value(), current_selection);
+                });
+                modify_project_availability_ms = measureMilliseconds([&]() {
+                    modify_project_availability =
+                        mesh::computeModifyProjectAvailability(active_document_.value(), current_selection);
+                });
+                modify_availability_cache_ = ModifyAvailabilityCache{
+                    .valid = true,
+                    .source_path = active_document_->source_path,
+                    .mesh_revision = active_document_->mesh_revision,
+                    .vertex_count = active_document_->positions.size(),
+                    .triangle_count = active_document_->triangles.size(),
+                    .explicit_edge_count = active_document_->explicit_edges.size(),
+                    .selection = current_selection,
+                    .modify_delete_availability = modify_delete_availability,
+                    .modify_create_face_availability = modify_create_face_availability,
+                    .modify_project_availability = modify_project_availability,
+                };
+            }
+        } else {
+            modify_availability_cache_ = ModifyAvailabilityCache{};
+        }
+
         const ImVec4& clear_color = editor_ui_.clearColor();
         window_.beginFrame(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
         editor_ui_.beginFrame();
         rebuildDocumentHistoryUiState();
 
+        std::vector<ui::EditorUiState::TimedTask> current_frame_performance_tasks;
+        current_frame_performance_tasks.reserve(14);
+        const render::ViewportRenderer::FrameTiming& render_timing = viewport_renderer_.lastFrameTiming();
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Viewport render (total)",
+            .duration_ms = render_timing.total_render_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Mesh sync/upload",
+            .duration_ms = render_timing.mesh_sync_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Shaded triangles pass",
+            .duration_ms = render_timing.shaded_pass_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Wireframe pass",
+            .duration_ms = render_timing.wireframe_pass_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Point pass",
+            .duration_ms = render_timing.point_pass_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Highlight overlays",
+            .duration_ms = render_timing.highlight_pass_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Axes overlay",
+            .duration_ms = render_timing.axis_pass_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Framebuffer resize/setup",
+            .duration_ms = render_timing.framebuffer_setup_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Modify Delete availability",
+            .duration_ms = modify_delete_availability_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Modify Create Face availability",
+            .duration_ms = modify_create_face_availability_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Modify Project availability",
+            .duration_ms = modify_project_availability_ms,
+        });
+
         const ui::EditorUiState ui_state{
-            .modify_delete_availability =
-                active_document_
-                    ? mesh::computeModifyDeleteAvailability(active_document_.value(), viewport_renderer_.currentSelection())
-                    : mesh::ModifyDeleteAvailability{},
-            .modify_create_face_availability =
-                active_document_
-                    ? mesh::computeModifyCreateFaceAvailability(active_document_.value(), viewport_renderer_.currentSelection())
-                    : mesh::ModifyCreateFaceAvailability{},
-            .modify_project_availability =
-                active_document_
-                    ? mesh::computeModifyProjectAvailability(active_document_.value(), viewport_renderer_.currentSelection())
-                    : mesh::ModifyProjectAvailability{},
-            .current_selection = viewport_renderer_.currentSelection(),
+            .modify_delete_availability = modify_delete_availability,
+            .modify_create_face_availability = modify_create_face_availability,
+            .modify_project_availability = modify_project_availability,
+            .current_selection = current_selection,
             .active_document = active_document_ ? &active_document_.value() : nullptr,
             .entity_sets = active_document_ ? std::span<const mesh::EntitySet>(active_document_->entity_sets) : std::span<const mesh::EntitySet>{},
             .selected_entity_set_index = selected_entity_set_index_,
@@ -232,7 +343,9 @@ int EditorApplication::run() {
             .can_redo =
                 current_history_index_.has_value() &&
                 document_history_[*current_history_index_].preferred_child_index.has_value(),
+            .show_performance_tasks = editor_ui_.graphicsQualitySettings().debug_performance,
             .log_messages = log_messages_,
+            .performance_tasks = frame_performance_tasks_,
             .camera_yaw = viewport_renderer_.camera().yaw,
             .camera_pitch = viewport_renderer_.camera().pitch,
             .selection_summary = ui::EditorUiState::SelectionSummary{
@@ -254,10 +367,52 @@ int EditorApplication::run() {
                 .preview_edge_count = select_similar_feedback_.preview_edge_count,
                 .unavailable_reasons = select_similar_feedback_reasons_,
             },
+            .file_load_dialog = ui::EditorUiState::FileLoadDialog{
+                .visible = pending_document_load_.has_value() && pending_document_load_->show_dialog,
+                .show_progress_bar = pending_document_load_.has_value() && pending_document_load_->show_dialog,
+                .title =
+                    pending_document_load_.has_value()
+                        ? pending_document_load_->kind == PendingDocumentLoad::Kind::Project
+                              ? "Opening project"
+                              : "Importing mesh"
+                        : "",
+                .message =
+                    pending_document_load_.has_value()
+                        ? "Loading " + pending_document_load_->path.filename().string() + '.'
+                        : "",
+            },
         };
-        const ui::EditorUiActions actions = editor_ui_.draw(ui_state);
-        editor_ui_.endFrame(window_.nativeHandle());
-        window_.swapBuffers();
+        float editor_ui_draw_ms = 0.0F;
+        ui::EditorUiActions actions;
+        editor_ui_draw_ms = measureMilliseconds([&]() {
+            actions = editor_ui_.draw(ui_state);
+        });
+        float imgui_render_ms = measureMilliseconds([&]() {
+            editor_ui_.endFrame(window_.nativeHandle());
+        });
+        float swap_buffers_ms = measureMilliseconds([&]() {
+            window_.swapBuffers();
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Editor UI build",
+            .duration_ms = editor_ui_draw_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "ImGui render",
+            .duration_ms = imgui_render_ms,
+        });
+        current_frame_performance_tasks.push_back(ui::EditorUiState::TimedTask{
+            .label = "Present / swap buffers",
+            .duration_ms = swap_buffers_ms,
+        });
+        std::sort(
+            current_frame_performance_tasks.begin(),
+            current_frame_performance_tasks.end(),
+            [](const ui::EditorUiState::TimedTask& left, const ui::EditorUiState::TimedTask& right) {
+                return left.duration_ms > right.duration_ms;
+            }
+        );
+        frame_performance_tasks_ = std::move(current_frame_performance_tasks);
 
         pending_viewport_camera_input_ = actions.viewport_camera;
         for (const ui::EditorUiLogEvent& event_log : actions.event_logs) {
@@ -316,6 +471,11 @@ void EditorApplication::appendLog(std::string origin, std::string message) {
 }
 
 void EditorApplication::openDocument() {
+    if (pending_document_load_.has_value()) {
+        appendLog("PROJECT", "Open skipped because another file is still loading.");
+        return;
+    }
+
     const std::optional<std::filesystem::path> selected_path = platform::openDocumentFileDialog();
     if (!selected_path.has_value()) {
         appendLog("PROJECT", "Open canceled.");
@@ -326,12 +486,12 @@ void EditorApplication::openDocument() {
 }
 
 void EditorApplication::openPath(const std::filesystem::path& path) {
-    if (lowercaseExtension(path) == ".mt") {
-        loadProjectDocument(path);
+    if (pending_document_load_.has_value()) {
+        appendLog("PROJECT", "Open skipped because another file is still loading.");
         return;
     }
 
-    loadMeshDocument(path);
+    beginDocumentLoad(path);
 }
 
 void EditorApplication::saveProject() {
@@ -396,14 +556,69 @@ void EditorApplication::saveProjectAs() {
     appendLog("PROJECT", "Saved project " + active_document_->displayName() + '.');
 }
 
-void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
-    io::MeshImportResult result = io::importMeshFromFile(path);
-    if (!result.succeeded()) {
-        appendLog("IMPORT", "Failed to load mesh: " + result.error_message);
+void EditorApplication::beginDocumentLoad(const std::filesystem::path& path) {
+    PendingDocumentLoad pending_load;
+    pending_load.kind =
+        lowercaseExtension(path) == ".mt" ? PendingDocumentLoad::Kind::Project : PendingDocumentLoad::Kind::Mesh;
+    pending_load.path = path;
+    pending_load.show_dialog = !active_document_.has_value();
+    pending_load.state = std::make_shared<AsyncDocumentLoadState>();
+
+    const PendingDocumentLoad::Kind kind = pending_load.kind;
+    const std::filesystem::path load_path = pending_load.path;
+    const std::shared_ptr<AsyncDocumentLoadState> state = pending_load.state;
+    pending_load.worker = std::jthread([state, kind, load_path]() {
+        DocumentLoadOutcome outcome;
+        if (kind == PendingDocumentLoad::Kind::Project) {
+            io::ProjectArchiveLoadResult result = io::loadProjectArchive(load_path);
+            outcome.document = std::move(result.document);
+            outcome.log_messages = std::move(result.log_messages);
+            outcome.error_message = std::move(result.error_message);
+        } else {
+            io::MeshImportResult result = io::importMeshFromFile(load_path);
+            outcome.document = std::move(result.document);
+            outcome.error_message = std::move(result.error_message);
+        }
+
+        const std::scoped_lock lock(state->mutex);
+        state->outcome = std::move(outcome);
+        state->completed = true;
+    });
+    pending_document_load_ = std::move(pending_load);
+}
+
+void EditorApplication::pollPendingDocumentLoad() {
+    if (!pending_document_load_.has_value()) {
         return;
     }
 
-    active_document_ = std::move(result.document);
+    std::optional<DocumentLoadOutcome> outcome;
+    {
+        const std::scoped_lock lock(pending_document_load_->state->mutex);
+        if (!pending_document_load_->state->completed) {
+            return;
+        }
+
+        outcome = std::move(pending_document_load_->state->outcome);
+    }
+
+    PendingDocumentLoad completed_load = std::move(*pending_document_load_);
+    pending_document_load_.reset();
+    if (completed_load.kind == PendingDocumentLoad::Kind::Project) {
+        applyLoadedProjectDocument(completed_load.path, std::move(*outcome));
+        return;
+    }
+
+    applyLoadedMeshDocument(std::move(*outcome));
+}
+
+void EditorApplication::applyLoadedMeshDocument(DocumentLoadOutcome outcome) {
+    if (!outcome.document.has_value()) {
+        appendLog("IMPORT", "Failed to load mesh: " + outcome.error_message);
+        return;
+    }
+
+    active_document_ = std::move(outcome.document);
     mesh::ensureRenderableNormals(&active_document_.value());
     active_document_->mesh_revision = next_mesh_revision_id_++;
     viewport_renderer_.clearSelection();
@@ -427,14 +642,13 @@ void EditorApplication::loadMeshDocument(const std::filesystem::path& path) {
     );
 }
 
-void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
-    io::ProjectArchiveLoadResult result = io::loadProjectArchive(path);
-    if (!result.succeeded()) {
-        appendLog("PROJECT", "Failed to open project: " + result.error_message);
+void EditorApplication::applyLoadedProjectDocument(const std::filesystem::path& path, DocumentLoadOutcome outcome) {
+    if (!outcome.document.has_value()) {
+        appendLog("PROJECT", "Failed to open project: " + outcome.error_message);
         return;
     }
 
-    active_document_ = std::move(result.document);
+    active_document_ = std::move(outcome.document);
     mesh::ensureRenderableNormals(&active_document_.value());
     active_document_->mesh_revision = next_mesh_revision_id_++;
     viewport_renderer_.clearSelection();
@@ -442,7 +656,7 @@ void EditorApplication::loadProjectDocument(const std::filesystem::path& path) {
     active_project_path_ = path;
     selected_entity_set_index_.reset();
     pending_renderer_selection_.reset();
-    log_messages_ = std::move(result.log_messages);
+    log_messages_ = std::move(outcome.log_messages);
     expand_selection_feedback_reasons_.clear();
     expand_selection_feedback_ = {};
     select_similar_feedback_reasons_.clear();

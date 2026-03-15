@@ -1,7 +1,9 @@
 #include "meshtools/render/ViewportRenderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <utility>
 
 #include "ViewportRendererDetail.h"
 
@@ -10,6 +12,16 @@
 #endif
 
 namespace meshtools::render {
+namespace {
+
+template <typename Func>
+float measureMilliseconds(Func&& func) {
+    const auto start = std::chrono::steady_clock::now();
+    std::forward<Func>(func)();
+    return std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
+
+}  // namespace
 
 ViewportRenderer::ViewportRenderer() = default;
 
@@ -86,14 +98,20 @@ ViewportRenderer::~ViewportRenderer() {
 }
 
 void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int height, const DisplaySettings& display_settings) {
+    const auto frame_start = std::chrono::steady_clock::now();
+    FrameTiming frame_timing;
     const int safe_width = std::max(width, 1);
     const int safe_height = std::max(height, 1);
 
-    ensureFramebuffer(safe_width, safe_height);
+    frame_timing.framebuffer_setup_ms = measureMilliseconds([&]() {
+        ensureFramebuffer(safe_width, safe_height);
+    });
     ensureShaderProgram();
     ensureAxisResources();
     ensureHighlightResources();
-    syncMesh(document, display_settings.source_up_axis);
+    frame_timing.mesh_sync_ms = measureMilliseconds([&]() {
+        syncMesh(document, display_settings.source_up_axis);
+    });
 
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
     glViewport(0, 0, safe_width, safe_height);
@@ -193,154 +211,167 @@ void ViewportRenderer::render(const mesh::MeshDocument* document, int width, int
     glBindVertexArray(vertex_array_);
 
     if (display_settings.shade_triangles) {
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(1.0F, 1.0F);
-        glUniform1i(render_mode_location, 0);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
-        glDisable(GL_POLYGON_OFFSET_FILL);
+        frame_timing.shaded_pass_ms = measureMilliseconds([&]() {
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(1.0F, 1.0F);
+            glUniform1i(render_mode_location, 0);
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
+            glDisable(GL_POLYGON_OFFSET_FILL);
+        });
     }
 
     if (display_settings.show_wireframe) {
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        glUniform1i(render_mode_location, 1);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glDisable(GL_BLEND);
+        frame_timing.wireframe_pass_ms = measureMilliseconds([&]() {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glUniform1i(render_mode_location, 1);
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(index_count_), GL_UNSIGNED_INT, nullptr);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            glDisable(GL_BLEND);
+        });
     }
 
     if (display_settings.show_points && vertex_count_ > 0) {
+        frame_timing.point_pass_ms = measureMilliseconds([&]() {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glEnable(GL_PROGRAM_POINT_SIZE);
+            glUniform1i(render_mode_location, 2);
+            glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(vertex_count_));
+            glDisable(GL_PROGRAM_POINT_SIZE);
+            glDisable(GL_BLEND);
+        });
+    }
+
+    frame_timing.highlight_pass_ms = measureMilliseconds([&]() {
+        glUseProgram(highlight_shader_program_);
+        const int highlight_mvp_location = glGetUniformLocation(highlight_shader_program_, "u_mvp");
+        const int highlight_color_location = glGetUniformLocation(highlight_shader_program_, "u_color");
+        const int highlight_point_size_location = glGetUniformLocation(highlight_shader_program_, "u_point_size");
+        const int highlight_depth_bias_location = glGetUniformLocation(highlight_shader_program_, "u_depth_bias");
+        const int highlight_round_points_location = glGetUniformLocation(highlight_shader_program_, "u_round_points");
+
+        glUniformMatrix4fv(highlight_mvp_location, 1, GL_FALSE, mvp.data());
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glEnable(GL_PROGRAM_POINT_SIZE);
-        glUniform1i(render_mode_location, 2);
-        glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(vertex_count_));
-        glDisable(GL_PROGRAM_POINT_SIZE);
+
+        if (document_edge_vertex_count_ > 0U) {
+            glBindVertexArray(document_edge_vertex_array_);
+            glUniform4f(
+                highlight_color_location,
+                display_settings.theme_colors.document_edge_color.r,
+                display_settings.theme_colors.document_edge_color.g,
+                display_settings.theme_colors.document_edge_color.b,
+                display_settings.theme_colors.document_edge_color.a
+            );
+            glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
+            glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias * 0.75F);
+            glUniform1i(highlight_round_points_location, 0);
+            glLineWidth(1.5F);
+            glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(document_edge_vertex_count_));
+        }
+
+        if (selection_summary_.totalCount() > 0U) {
+            if (selected_face_vertex_count_ > 0U) {
+                glBindVertexArray(selected_face_vertex_array_);
+                glUniform4f(
+                    highlight_color_location,
+                    display_settings.theme_colors.selected_face_color.r,
+                    display_settings.theme_colors.selected_face_color.g,
+                    display_settings.theme_colors.selected_face_color.b,
+                    display_settings.theme_colors.selected_face_color.a
+                );
+                glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
+                glUniform1f(highlight_depth_bias_location, detail::kFaceDepthBias);
+                glUniform1i(highlight_round_points_location, 0);
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(selected_face_vertex_count_));
+            }
+
+            if (preview_face_vertex_count_ > 0U) {
+                glBindVertexArray(preview_face_vertex_array_);
+                glUniform4f(
+                    highlight_color_location,
+                    display_settings.theme_colors.preview_face_color.r,
+                    display_settings.theme_colors.preview_face_color.g,
+                    display_settings.theme_colors.preview_face_color.b,
+                    display_settings.theme_colors.preview_face_color.a
+                );
+                glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
+                glUniform1f(highlight_depth_bias_location, detail::kFaceDepthBias * 0.5F);
+                glUniform1i(highlight_round_points_location, 0);
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(preview_face_vertex_count_));
+            }
+
+            if (preview_edge_vertex_count_ > 0U) {
+                glBindVertexArray(preview_edge_vertex_array_);
+                glUniform4f(
+                    highlight_color_location,
+                    display_settings.theme_colors.preview_edge_color.r,
+                    display_settings.theme_colors.preview_edge_color.g,
+                    display_settings.theme_colors.preview_edge_color.b,
+                    display_settings.theme_colors.preview_edge_color.a
+                );
+                glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
+                glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias * 0.85F);
+                glUniform1i(highlight_round_points_location, 0);
+                glLineWidth(3.0F);
+                glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(preview_edge_vertex_count_));
+            }
+
+            if (selected_edge_vertex_count_ > 0U) {
+                glBindVertexArray(selected_edge_vertex_array_);
+                glUniform4f(
+                    highlight_color_location,
+                    display_settings.theme_colors.selected_edge_color.r,
+                    display_settings.theme_colors.selected_edge_color.g,
+                    display_settings.theme_colors.selected_edge_color.b,
+                    display_settings.theme_colors.selected_edge_color.a
+                );
+                glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
+                glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias);
+                glUniform1i(highlight_round_points_location, 0);
+                glLineWidth(3.0F);
+                glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(selected_edge_vertex_count_));
+            }
+
+            if (selected_point_vertex_count_ > 0U) {
+                glBindVertexArray(selected_point_vertex_array_);
+                glUniform4f(
+                    highlight_color_location,
+                    display_settings.theme_colors.selected_point_color.r,
+                    display_settings.theme_colors.selected_point_color.g,
+                    display_settings.theme_colors.selected_point_color.b,
+                    display_settings.theme_colors.selected_point_color.a
+                );
+                glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
+                glUniform1f(highlight_depth_bias_location, detail::kPointDepthBias);
+                glUniform1i(highlight_round_points_location, 1);
+                glEnable(GL_PROGRAM_POINT_SIZE);
+                glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(selected_point_vertex_count_));
+                glDisable(GL_PROGRAM_POINT_SIZE);
+            }
+        }
+
         glDisable(GL_BLEND);
-    }
+    });
 
-    glUseProgram(highlight_shader_program_);
-    const int highlight_mvp_location = glGetUniformLocation(highlight_shader_program_, "u_mvp");
-    const int highlight_color_location = glGetUniformLocation(highlight_shader_program_, "u_color");
-    const int highlight_point_size_location = glGetUniformLocation(highlight_shader_program_, "u_point_size");
-    const int highlight_depth_bias_location = glGetUniformLocation(highlight_shader_program_, "u_depth_bias");
-    const int highlight_round_points_location = glGetUniformLocation(highlight_shader_program_, "u_round_points");
-
-    glUniformMatrix4fv(highlight_mvp_location, 1, GL_FALSE, mvp.data());
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    if (document_edge_vertex_count_ > 0U) {
-        glBindVertexArray(document_edge_vertex_array_);
-        glUniform4f(
-            highlight_color_location,
-            display_settings.theme_colors.document_edge_color.r,
-            display_settings.theme_colors.document_edge_color.g,
-            display_settings.theme_colors.document_edge_color.b,
-            display_settings.theme_colors.document_edge_color.a
-        );
-        glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
-        glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias * 0.75F);
-        glUniform1i(highlight_round_points_location, 0);
-        glLineWidth(1.5F);
-        glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(document_edge_vertex_count_));
-    }
-
-    if (selection_summary_.totalCount() > 0U) {
-        if (selected_face_vertex_count_ > 0U) {
-            glBindVertexArray(selected_face_vertex_array_);
-            glUniform4f(
-                highlight_color_location,
-                display_settings.theme_colors.selected_face_color.r,
-                display_settings.theme_colors.selected_face_color.g,
-                display_settings.theme_colors.selected_face_color.b,
-                display_settings.theme_colors.selected_face_color.a
-            );
-            glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
-            glUniform1f(highlight_depth_bias_location, detail::kFaceDepthBias);
-            glUniform1i(highlight_round_points_location, 0);
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(selected_face_vertex_count_));
-        }
-
-        if (preview_face_vertex_count_ > 0U) {
-            glBindVertexArray(preview_face_vertex_array_);
-            glUniform4f(
-                highlight_color_location,
-                display_settings.theme_colors.preview_face_color.r,
-                display_settings.theme_colors.preview_face_color.g,
-                display_settings.theme_colors.preview_face_color.b,
-                display_settings.theme_colors.preview_face_color.a
-            );
-            glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
-            glUniform1f(highlight_depth_bias_location, detail::kFaceDepthBias * 0.5F);
-            glUniform1i(highlight_round_points_location, 0);
-            glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(preview_face_vertex_count_));
-        }
-
-        if (preview_edge_vertex_count_ > 0U) {
-            glBindVertexArray(preview_edge_vertex_array_);
-            glUniform4f(
-                highlight_color_location,
-                display_settings.theme_colors.preview_edge_color.r,
-                display_settings.theme_colors.preview_edge_color.g,
-                display_settings.theme_colors.preview_edge_color.b,
-                display_settings.theme_colors.preview_edge_color.a
-            );
-            glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
-            glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias * 0.85F);
-            glUniform1i(highlight_round_points_location, 0);
-            glLineWidth(3.0F);
-            glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(preview_edge_vertex_count_));
-        }
-
-        if (selected_edge_vertex_count_ > 0U) {
-            glBindVertexArray(selected_edge_vertex_array_);
-            glUniform4f(
-                highlight_color_location,
-                display_settings.theme_colors.selected_edge_color.r,
-                display_settings.theme_colors.selected_edge_color.g,
-                display_settings.theme_colors.selected_edge_color.b,
-                display_settings.theme_colors.selected_edge_color.a
-            );
-            glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
-            glUniform1f(highlight_depth_bias_location, detail::kEdgeDepthBias);
-            glUniform1i(highlight_round_points_location, 0);
-            glLineWidth(3.0F);
-            glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(selected_edge_vertex_count_));
-        }
-
-        if (selected_point_vertex_count_ > 0U) {
-            glBindVertexArray(selected_point_vertex_array_);
-            glUniform4f(
-                highlight_color_location,
-                display_settings.theme_colors.selected_point_color.r,
-                display_settings.theme_colors.selected_point_color.g,
-                display_settings.theme_colors.selected_point_color.b,
-                display_settings.theme_colors.selected_point_color.a
-            );
-            glUniform1f(highlight_point_size_location, detail::kSelectionPointSize);
-            glUniform1f(highlight_depth_bias_location, detail::kPointDepthBias);
-            glUniform1i(highlight_round_points_location, 1);
-            glEnable(GL_PROGRAM_POINT_SIZE);
-            glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(selected_point_vertex_count_));
-            glDisable(GL_PROGRAM_POINT_SIZE);
-        }
-    }
-
-    glDisable(GL_BLEND);
-
-    glUseProgram(axis_shader_program_);
-    const int axis_mvp_location = glGetUniformLocation(axis_shader_program_, "u_mvp");
-    glUniformMatrix4fv(axis_mvp_location, 1, GL_FALSE, mvp.data());
-    glBindVertexArray(axis_vertex_array_);
-    glLineWidth(2.0F);
-    glDrawArrays(GL_LINES, 0, 6);
-    glBindVertexArray(0);
+    frame_timing.axis_pass_ms = measureMilliseconds([&]() {
+        glUseProgram(axis_shader_program_);
+        const int axis_mvp_location = glGetUniformLocation(axis_shader_program_, "u_mvp");
+        glUniformMatrix4fv(axis_mvp_location, 1, GL_FALSE, mvp.data());
+        glBindVertexArray(axis_vertex_array_);
+        glLineWidth(2.0F);
+        glDrawArrays(GL_LINES, 0, 6);
+        glBindVertexArray(0);
+    });
 
     glBindVertexArray(0);
     glUseProgram(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    frame_timing.total_render_ms =
+        std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - frame_start).count();
+    last_frame_timing_ = frame_timing;
 }
 
 void ViewportRenderer::orbit(float delta_x, float delta_y) {
@@ -381,6 +412,10 @@ int ViewportRenderer::textureHeight() const {
 
 const ViewportRenderer::CameraState& ViewportRenderer::camera() const {
     return camera_;
+}
+
+const ViewportRenderer::FrameTiming& ViewportRenderer::lastFrameTiming() const {
+    return last_frame_timing_;
 }
 
 const ViewportRenderer::SelectionSummary& ViewportRenderer::selectionSummary() const {

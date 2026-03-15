@@ -17,6 +17,11 @@
 namespace meshtools::ui {
 
 struct EditorUiState {
+    struct TimedTask {
+        std::string label;
+        float duration_ms = 0.0F;
+    };
+
     struct HistoryEntry {
         std::size_t node_id = 0;
         std::size_t depth = 0;
@@ -47,6 +52,13 @@ struct EditorUiState {
         std::span<const std::string> unavailable_reasons;
     };
 
+    struct FileLoadDialog {
+        bool visible = false;
+        bool show_progress_bar = false;
+        std::string title;
+        std::string message;
+    };
+
     mesh::ModifyDeleteAvailability modify_delete_availability;
     mesh::ModifyCreateFaceAvailability modify_create_face_availability;
     mesh::ModifyProjectAvailability modify_project_availability;
@@ -60,7 +72,9 @@ struct EditorUiState {
     std::size_t active_history_branch_position = 0;
     bool can_undo = false;
     bool can_redo = false;
+    bool show_performance_tasks = false;
     std::span<const std::string> log_messages;
+    std::span<const TimedTask> performance_tasks;
     float camera_yaw = 0.0F;
     float camera_pitch = 0.0F;
     struct SelectionSummary {
@@ -74,6 +88,7 @@ struct EditorUiState {
     } selection_summary;
     ExpandSelectionFeedback expand_selection_feedback;
     SelectSimilarFeedback select_similar_feedback;
+    FileLoadDialog file_load_dialog;
 };
 
 enum class PanModifier {
@@ -117,6 +132,7 @@ struct ViewportControlSettings {
 
 struct GraphicsQualitySettings {
     int render_resolution_percent = 100;
+    bool debug_performance = false;
 };
 
 struct FileImportSettings {
