@@ -1,8 +1,42 @@
 #include "meshtools/ui/BottomPane.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
 #include "meshtools/ui/EditorDockLayout.h"
 
 namespace meshtools::ui {
+
+namespace {
+
+[[nodiscard]] std::string formatEntityIds(const std::vector<std::uint32_t>& indices) {
+    if (indices.empty()) {
+        return "None";
+    }
+
+    constexpr std::size_t kMaxDisplayedIds = 24;
+
+    std::string result;
+    for (std::size_t index = 0; index < indices.size() && index < kMaxDisplayedIds; ++index) {
+        if (!result.empty()) {
+            result += ", ";
+        }
+
+        result += std::to_string(indices[index]);
+    }
+
+    if (indices.size() > kMaxDisplayedIds) {
+        result += ", ... (+";
+        result += std::to_string(indices.size() - kMaxDisplayedIds);
+        result += " more)";
+    }
+
+    return result;
+}
+
+}  // namespace
 
 void BottomPane::draw(const EditorUiState& state) {
     constexpr ImGuiWindowFlags pane_flags =
@@ -50,8 +84,11 @@ void BottomPane::draw(const EditorUiState& state) {
                 ImGui::Text("Active mesh: %s", state.active_document->displayName().c_str());
                 ImGui::Text("Selected entities: %zu", state.selection_summary.totalCount());
                 ImGui::Text("Faces: %zu", state.selection_summary.face_count);
+                ImGui::TextWrapped("Face IDs: %s", formatEntityIds(state.current_selection.face_indices).c_str());
                 ImGui::Text("Edges: %zu", state.selection_summary.edge_count);
+                ImGui::TextWrapped("Edge IDs: %s", formatEntityIds(state.current_selection.edge_indices).c_str());
                 ImGui::Text("Points: %zu", state.selection_summary.point_count);
+                ImGui::TextWrapped("Point IDs: %s", formatEntityIds(state.current_selection.point_indices).c_str());
             } else {
                 ImGui::TextUnformatted("No active mesh.");
             }
