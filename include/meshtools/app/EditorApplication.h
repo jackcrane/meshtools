@@ -84,6 +84,9 @@ class EditorApplication {
     struct MeshOperationOutcome;
     struct AsyncMeshOperationState;
     struct PendingMeshOperation;
+    struct HistoryRestoreOutcome;
+    struct AsyncHistoryRestoreState;
+    struct PendingHistoryRestore;
     struct AsyncDocumentTopologyPrecomputeState;
     struct PendingDocumentTopologyPrecompute;
 
@@ -99,6 +102,9 @@ class EditorApplication {
     void beginModifyDeleteOperation(const mesh::ModifyDeleteOptions& options);
     void startPendingMeshOperation();
     void pollPendingMeshOperation();
+    void beginHistoryRestoreOperation(std::size_t node_index, std::string action);
+    void startPendingHistoryRestore();
+    void pollPendingHistoryRestore();
     void beginDocumentTopologyPrecompute(std::string title, std::string message);
     void startPendingDocumentTopologyPrecompute();
     void pollPendingDocumentTopologyPrecompute();
@@ -202,6 +208,33 @@ class EditorApplication {
         std::jthread worker;
     };
 
+    struct HistoryRestoreOutcome {
+        bool valid = false;
+        EditableDocumentState document_state;
+        mesh::EntitySelection selection;
+        std::optional<std::size_t> selected_entity_set_index;
+        std::size_t node_index = 0;
+        std::string action;
+        std::string node_label;
+    };
+
+    struct AsyncHistoryRestoreState {
+        std::mutex mutex;
+        bool completed = false;
+        HistoryRestoreOutcome outcome;
+    };
+
+    struct PendingHistoryRestore {
+        std::size_t node_index = 0;
+        std::string action;
+        std::string node_label;
+        std::string title;
+        std::string message;
+        bool started = false;
+        std::shared_ptr<AsyncHistoryRestoreState> state;
+        std::jthread worker;
+    };
+
     struct AsyncDocumentTopologyPrecomputeState {
         std::mutex mutex;
         bool completed = false;
@@ -235,6 +268,7 @@ class EditorApplication {
     std::optional<mesh::EntitySelection> pending_renderer_selection_;
     std::optional<PendingDocumentLoad> pending_document_load_;
     std::optional<PendingMeshOperation> pending_mesh_operation_;
+    std::optional<PendingHistoryRestore> pending_history_restore_;
     std::optional<PendingDocumentTopologyPrecompute> pending_document_topology_precompute_;
     std::vector<DocumentHistoryNode> document_history_;
     std::optional<std::size_t> current_history_index_;

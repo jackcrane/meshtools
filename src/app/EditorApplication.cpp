@@ -200,6 +200,7 @@ int EditorApplication::run() {
         window_.pollEvents();
         pollPendingDocumentLoad();
         pollPendingMeshOperation();
+        pollPendingHistoryRestore();
         pollPendingDocumentTopologyPrecompute();
 
         const platform::NativeMenuActions menu_actions = platform::consumePendingNativeMenuActions();
@@ -395,10 +396,12 @@ int EditorApplication::run() {
                 .visible =
                     pending_document_load_.has_value() ||
                     pending_mesh_operation_.has_value() ||
+                    pending_history_restore_.has_value() ||
                     pending_document_topology_precompute_.has_value(),
                 .show_progress_bar =
                     pending_document_load_.has_value() ||
                     pending_mesh_operation_.has_value() ||
+                    pending_history_restore_.has_value() ||
                     pending_document_topology_precompute_.has_value(),
                 .title =
                     pending_document_load_.has_value()
@@ -407,6 +410,8 @@ int EditorApplication::run() {
                               : "Importing mesh"
                         : pending_mesh_operation_.has_value()
                             ? pending_mesh_operation_->title
+                        : pending_history_restore_.has_value()
+                            ? pending_history_restore_->title
                         : pending_document_topology_precompute_.has_value()
                             ? pending_document_topology_precompute_->title
                             : "",
@@ -415,6 +420,8 @@ int EditorApplication::run() {
                         ? "Loading " + pending_document_load_->path.filename().string() + '.'
                         : pending_mesh_operation_.has_value()
                             ? pending_mesh_operation_->message
+                        : pending_history_restore_.has_value()
+                            ? pending_history_restore_->message
                         : pending_document_topology_precompute_.has_value()
                             ? pending_document_topology_precompute_->message
                         : "",
@@ -452,9 +459,15 @@ int EditorApplication::run() {
         );
         frame_performance_tasks_ = std::move(current_frame_performance_tasks);
 
-        if (pending_document_load_.has_value() || pending_mesh_operation_.has_value() || pending_document_topology_precompute_.has_value()) {
+        if (pending_document_load_.has_value() ||
+            pending_mesh_operation_.has_value() ||
+            pending_history_restore_.has_value() ||
+            pending_document_topology_precompute_.has_value()) {
             if (pending_mesh_operation_.has_value() && !pending_mesh_operation_->started) {
                 startPendingMeshOperation();
+            }
+            if (pending_history_restore_.has_value() && !pending_history_restore_->started) {
+                startPendingHistoryRestore();
             }
             if (pending_document_topology_precompute_.has_value() && !pending_document_topology_precompute_->started) {
                 startPendingDocumentTopologyPrecompute();
@@ -525,6 +538,7 @@ void EditorApplication::appendLog(std::string origin, std::string message) {
 void EditorApplication::openDocument() {
     if (pending_document_load_.has_value() ||
         pending_mesh_operation_.has_value() ||
+        pending_history_restore_.has_value() ||
         pending_document_topology_precompute_.has_value()) {
         appendLog("PROJECT", "Open skipped because another file is still loading.");
         return;
@@ -542,6 +556,7 @@ void EditorApplication::openDocument() {
 void EditorApplication::openPath(const std::filesystem::path& path) {
     if (pending_document_load_.has_value() ||
         pending_mesh_operation_.has_value() ||
+        pending_history_restore_.has_value() ||
         pending_document_topology_precompute_.has_value()) {
         appendLog("PROJECT", "Open skipped because another file is still loading.");
         return;
@@ -553,6 +568,7 @@ void EditorApplication::openPath(const std::filesystem::path& path) {
 void EditorApplication::saveProject() {
     if (pending_document_load_.has_value() ||
         pending_mesh_operation_.has_value() ||
+        pending_history_restore_.has_value() ||
         pending_document_topology_precompute_.has_value()) {
         appendLog("PROJECT", "Save skipped because the document is busy.");
         return;
@@ -588,6 +604,7 @@ void EditorApplication::saveProject() {
 void EditorApplication::saveProjectAs() {
     if (pending_document_load_.has_value() ||
         pending_mesh_operation_.has_value() ||
+        pending_history_restore_.has_value() ||
         pending_document_topology_precompute_.has_value()) {
         appendLog("PROJECT", "Save skipped because the document is busy.");
         return;
@@ -880,6 +897,112 @@ void EditorApplication::pollPendingMeshOperation() {
         outcome->selected_entity_set_index
     );
     appendLog("MODIFY", outcome->success_log_message);
+}
+
+void EditorApplication::beginHistoryRestoreOperation(std::size_t node_index, std::string action) {
+    if (!active_document_.has_value() || node_index >= document_history_.size()) {
+        return;
+    }
+
+    PendingHistoryRestore pending_restore;
+    pending_restore.node_index = node_index;
+    pending_restore.action = std::move(action);
+    pending_restore.node_label = document_history_[node_index].label;
+    pending_restore.title = "Restoring history";
+    pending_restore.message = pending_restore.action + " " + pending_restore.node_label + '.';
+    pending_restore.state = std::make_shared<AsyncHistoryRestoreState>();
+    pending_history_restore_ = std::move(pending_restore);
+}
+
+void EditorApplication::startPendingHistoryRestore() {
+    if (!pending_history_restore_.has_value() ||
+        pending_history_restore_->started ||
+        pending_history_restore_->node_index >= document_history_.size()) {
+        return;
+    }
+
+    pending_history_restore_->started = true;
+    const std::size_t node_index = pending_history_restore_->node_index;
+    const std::string action = pending_history_restore_->action;
+    const std::string node_label = pending_history_restore_->node_label;
+    const DocumentHistorySnapshot snapshot = document_history_[node_index].snapshot;
+    const std::shared_ptr<AsyncHistoryRestoreState> state = pending_history_restore_->state;
+    pending_history_restore_->worker = std::jthread(
+        [state, node_index, action, node_label, snapshot]() mutable {
+            HistoryRestoreOutcome outcome;
+            outcome.valid = true;
+            outcome.document_state = snapshot.document_state;
+            outcome.selection = snapshot.selection;
+            outcome.selected_entity_set_index = snapshot.selected_entity_set_index;
+            outcome.node_index = node_index;
+            outcome.action = std::move(action);
+            outcome.node_label = std::move(node_label);
+
+            const std::scoped_lock lock(state->mutex);
+            state->outcome = std::move(outcome);
+            state->completed = true;
+        }
+    );
+}
+
+void EditorApplication::pollPendingHistoryRestore() {
+    if (!pending_history_restore_.has_value() || !pending_history_restore_->started) {
+        return;
+    }
+
+    std::optional<HistoryRestoreOutcome> outcome;
+    {
+        const std::scoped_lock lock(pending_history_restore_->state->mutex);
+        if (!pending_history_restore_->state->completed) {
+            return;
+        }
+
+        outcome = std::move(pending_history_restore_->state->outcome);
+    }
+
+    pending_history_restore_.reset();
+    if (!outcome.has_value() || !outcome->valid || !active_document_.has_value()) {
+        return;
+    }
+
+    active_document_->up_axis = outcome->document_state.up_axis;
+    active_document_->mesh_revision = outcome->document_state.mesh_revision;
+    active_document_->positions = std::move(outcome->document_state.positions);
+    active_document_->normals = std::move(outcome->document_state.normals);
+    active_document_->triangles = std::move(outcome->document_state.triangles);
+    active_document_->explicit_edges = std::move(outcome->document_state.explicit_edges);
+    active_document_->bounds = outcome->document_state.bounds;
+    active_document_->entity_sets = std::move(outcome->document_state.entity_sets);
+    viewport_renderer_.clearSelection();
+    pending_renderer_selection_ = outcome->selection;
+    selected_entity_set_index_ = outcome->selected_entity_set_index;
+    if (selected_entity_set_index_.has_value() && *selected_entity_set_index_ >= active_document_->entity_sets.size()) {
+        selected_entity_set_index_.reset();
+    }
+    viewport_renderer_.clearExpandSelectionPreview();
+    viewport_renderer_.clearSelectSimilarPreview();
+    expand_selection_feedback_reasons_.clear();
+    expand_selection_feedback_ = {};
+    select_similar_feedback_reasons_.clear();
+    select_similar_feedback_ = {};
+    current_history_index_ = outcome->node_index;
+    setPreferredHistoryPathToNode(outcome->node_index);
+    next_mesh_revision_id_ = std::max(
+        next_mesh_revision_id_,
+        active_document_->mesh_revision + 1U
+    );
+    std::cout
+        << "[HISTORYDBG] restore node=r" << document_history_[outcome->node_index].node_id
+        << " label=\"" << document_history_[outcome->node_index].label << "\""
+        << " mesh_revision=" << active_document_->mesh_revision
+        << " triangles=" << active_document_->triangles.size()
+        << " vertices=" << active_document_->positions.size()
+        << std::endl;
+    beginDocumentTopologyPrecompute(
+        "Updating mesh caches",
+        "Recomputing topology caches for restored history state."
+    );
+    appendLog("HISTORY", std::move(outcome->action) + " " + outcome->node_label + '.');
 }
 
 void EditorApplication::beginDocumentTopologyPrecompute(std::string title, std::string message) {
@@ -1529,7 +1652,7 @@ void EditorApplication::undoDocumentHistory() {
         return;
     }
 
-    restoreDocumentHistoryNode(*parent_index, "Undo");
+    beginHistoryRestoreOperation(*parent_index, "Undo");
 }
 
 void EditorApplication::redoDocumentHistory() {
@@ -1543,7 +1666,7 @@ void EditorApplication::redoDocumentHistory() {
         return;
     }
 
-    restoreDocumentHistoryNode(*child_index, "Redo");
+    beginHistoryRestoreOperation(*child_index, "Redo");
 }
 
 void EditorApplication::jumpToDocumentHistoryNode(std::size_t node_id) {
@@ -1552,7 +1675,7 @@ void EditorApplication::jumpToDocumentHistoryNode(std::size_t node_id) {
         return;
     }
 
-    restoreDocumentHistoryNode(*node_index, "Jumped to");
+    beginHistoryRestoreOperation(*node_index, "Jumped to");
 }
 
 void EditorApplication::restoreDocumentHistoryNode(std::size_t node_index, std::string action) {
