@@ -15,6 +15,7 @@ The tool can derive a polygon from either:
 Point-driven creation is preferred when at least three suitable points are selected. If that cannot form a usable polygon, MeshTools falls back to edge-driven ordering when possible.
 
 When the edge selection contains multiple disconnected closed loops, MeshTools creates a separate filled region for each valid loop.
+If one selected loop sits inside another, MeshTools treats the inner loop as a hole and leaves that region unfilled.
 
 ## Practical Guidance
 
